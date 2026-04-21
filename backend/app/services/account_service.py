@@ -14,6 +14,10 @@ from app.services._query_filters import counts_as_pnl
 from app.services.credit_card_service import apply_effective_date, compute_available_credit, get_cycle_dates
 
 
+def get_account_name(account: Account) -> str:
+    return account.display_name or account.name
+
+
 async def get_accounts(session: AsyncSession, user_id: uuid.UUID, include_closed: bool = False) -> list[dict]:
     # Subquery: compute current_balance per account from transactions in one pass
     # Use amount_primary only when tx currency differs from account currency

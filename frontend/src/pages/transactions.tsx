@@ -671,14 +671,14 @@ export default function TransactionsPage() {
       <div
         className={`fixed bottom-0 left-0 right-0 z-50 transition-transform duration-200 ease-out ${selectedIds.size > 0 ? 'translate-y-0' : 'translate-y-full'}`}
       >
-        <div className="mx-auto max-w-4xl px-3 md:px-4 pb-4 md:pb-6">
+        <div className="mx-auto max-w-5xl px-3 md:px-4 pb-4 md:pb-6">
           <div className="flex items-stretch gap-1.5 bg-card border border-border shadow-xl rounded-2xl p-2">
             {/* Selection count */}
             <div className="flex items-center gap-2 pl-3 pr-4 text-sm font-medium text-foreground whitespace-nowrap">
               <span className="inline-flex items-center justify-center size-6 rounded-full bg-primary/10 text-primary text-xs font-semibold">
                 {selectedIds.size}
               </span>
-              <span className="hidden sm:inline">{t('transactions.selected', { count: selectedIds.size })}</span>
+              <span className="hidden sm:inline">{t('transactions.selected')}</span>
             </div>
 
             <div className="w-px bg-border/60 self-stretch" />
@@ -748,7 +748,7 @@ export default function TransactionsPage() {
               className="h-8 px-3 shrink-0 text-sm"
             >
               <ArrowLeftRight size={15} className="mr-1.5" />
-              <span className="hidden md:inline">{t('transactions.linkAsTransfer')}</span>
+              <span className="hidden lg:inline">{t('transactions.linkAsTransfer')}</span>
             </Button>
 
             <div className="ml-auto" />

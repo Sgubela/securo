@@ -1819,3 +1819,249 @@ async def test_cash_flow_end_date_in_past_no_contribution(
     report = await get_cash_flow_report(session, test_user.id, months=3, interval="daily")
     proj_income = next(b for b in report.summary.breakdowns if b.key == "projectedIncome")
     assert proj_income.value == 0.0
+
+
+
+@pytest.mark.asyncio
+async def test_cash_flow_overdraft_crunch_point_goes_negative(
+    session: AsyncSession, test_user: User
+):
+    """Cash crunch / overdraft: when projected outflows exceed inflows + start,
+    the running balance must go negative (not be clamped at 0)."""
+    account = await _make_manual_account(session, test_user.id, "CF Crunch")
+    await _add_txn(
+        session, test_user.id, account.id, 100, "credit",
+        date.today(), source="opening_balance",
+    )
+    today = date.today()
+    nxt = _next_first_of_month(today)
+    # $200 monthly debit on the 1st — burns through the $100 starting balance
+    await _make_recurring(
+        session, test_user.id, account.id,
+        amount=200, txn_type="debit", frequency="monthly",
+        day_of_month=1, next_occurrence=nxt,
+    )
+
+    report = await get_cash_flow_report(session, test_user.id, months=3, interval="daily")
+
+    negative_points = [p for p in report.trend if p.value < 0]
+    assert len(negative_points) > 0, "Trend never dips below zero — clamped?"
+    ending = next(b for b in report.summary.breakdowns if b.key == "endingBalance")
+    # 100 starting - 3*200 outflows = -500
+    assert ending.value == -500.0
+
+
+@pytest.mark.asyncio
+async def test_cash_flow_paycheck_timing_dip(
+    session: AsyncSession, test_user: User
+):
+    """Classic paycheck-timing dip: rent on day 5, salary on day 15. End of
+    month is positive, but mid-month should drop below the starting balance
+    (and possibly below 0). The trend must show that intra-month dip — not
+    just the net monthly figure."""
+    account = await _make_manual_account(session, test_user.id, "CF PayTiming")
+    await _add_txn(
+        session, test_user.id, account.id, 1000, "credit",
+        date.today(), source="opening_balance",
+    )
+    today = date.today()
+
+    # Anchor rent and salary in NEXT month so they fall in the projection
+    # window without ambiguity. day_of_month=5 for rent, =15 for salary.
+    next_month_first = _next_first_of_month(today)
+    rent_day = next_month_first.replace(day=5)
+    salary_day = next_month_first.replace(day=15)
+
+    await _make_recurring(
+        session, test_user.id, account.id,
+        amount=1500, txn_type="debit", frequency="monthly",
+        day_of_month=5, next_occurrence=rent_day,
+        description="Rent",
+    )
+    await _make_recurring(
+        session, test_user.id, account.id,
+        amount=3000, txn_type="credit", frequency="monthly",
+        day_of_month=15, next_occurrence=salary_day,
+        description="Salary",
+    )
+
+    report = await get_cash_flow_report(session, test_user.id, months=2, interval="daily")
+
+    # Fetch balance on rent day (after rent hit) and salary day (after salary hit)
+    rent_pt = next(p for p in report.trend if p.date == rent_day.isoformat())
+    salary_pt = next(p for p in report.trend if p.date == salary_day.isoformat())
+    end_pt = report.trend[-1]
+
+    # Day 5: 1000 - 1500 = -500 (overdraft mid-month!)
+    assert rent_pt.value == -500.0
+    # Day 15: -500 + 3000 = 2500
+    assert salary_pt.value == 2500.0
+    # End of window: net positive despite the mid-month dip
+    assert end_pt.value > 0
+
+
+@pytest.mark.asyncio
+async def test_cash_flow_large_one_off_purchase(
+    session: AsyncSession, test_user: User
+):
+    """User wants to plan a single large purchase (e.g., new laptop on day +20).
+    The chart must show a single dip on that exact day and recover for the
+    rest of the window (no recurring pattern)."""
+    account = await _make_manual_account(session, test_user.id, "CF Laptop")
+    await _add_txn(
+        session, test_user.id, account.id, 5000, "credit",
+        date.today(), source="opening_balance",
+    )
+    today = date.today()
+    purchase_day = today + timedelta(days=20)
+    await _add_txn(
+        session, test_user.id, account.id, 1800, "debit", purchase_day,
+    )
+
+    report = await get_cash_flow_report(session, test_user.id, months=2, interval="daily")
+
+    # Day before purchase: full starting balance
+    pre_pt = next(p for p in report.trend if p.date == (purchase_day - timedelta(days=1)).isoformat())
+    purchase_pt = next(p for p in report.trend if p.date == purchase_day.isoformat())
+    end_pt = report.trend[-1]
+
+    assert pre_pt.value == 5000.0
+    assert purchase_pt.value == 3200.0
+    assert purchase_pt.breakdowns["outflow"] == 1800.0
+    # No recurrings → balance stays at 3200 for rest of window
+    assert end_pt.value == 3200.0
+
+
+@pytest.mark.asyncio
+async def test_cash_flow_multiple_recurrings_same_day(
+    session: AsyncSession, test_user: User
+):
+    """Multiple bills that hit the same day must be summed into one outflow
+    bucket on that day, not represented as separate days."""
+    account = await _make_manual_account(session, test_user.id, "CF SameDay")
+    await _add_txn(
+        session, test_user.id, account.id, 5000, "credit",
+        date.today(), source="opening_balance",
+    )
+    today = date.today()
+    nxt = _next_first_of_month(today)
+
+    # Three different bills, all day 1
+    for amt, desc in [(800, "Rent"), (120, "Internet"), (60, "Streaming")]:
+        await _make_recurring(
+            session, test_user.id, account.id,
+            amount=amt, txn_type="debit", frequency="monthly",
+            day_of_month=1, next_occurrence=nxt, description=desc,
+        )
+
+    report = await get_cash_flow_report(session, test_user.id, months=1, interval="daily")
+    bill_day = next(p for p in report.trend if p.date == nxt.isoformat())
+
+    # All three bills stacked on the same day = 800 + 120 + 60 = 980
+    assert bill_day.breakdowns["outflow"] == 980.0
+    # No other day in the window has any outflow
+    other_outflow_days = [
+        p for p in report.trend
+        if p.date != nxt.isoformat() and p.breakdowns["outflow"] > 0
+    ]
+    assert other_outflow_days == []
+
+
+@pytest.mark.asyncio
+async def test_cash_flow_yearly_recurring(session: AsyncSession, test_user: User):
+    """Yearly recurring (e.g., annual car insurance): expansion in a 12-month
+    window should yield exactly one occurrence."""
+    account = await _make_manual_account(session, test_user.id, "CF Yearly")
+    await _add_txn(
+        session, test_user.id, account.id, 5000, "credit",
+        date.today(), source="opening_balance",
+    )
+    today = date.today()
+    # Schedule it 30 days out so it falls inside both 1mo+ and 12mo windows
+    nxt = today + timedelta(days=30)
+    await _make_recurring(
+        session, test_user.id, account.id,
+        amount=1200, txn_type="debit", frequency="yearly",
+        day_of_month=nxt.day, next_occurrence=nxt,
+    )
+
+    rep_12 = await get_cash_flow_report(session, test_user.id, months=12, interval="daily")
+    proj_exp_12 = next(b for b in rep_12.summary.breakdowns if b.key == "projectedExpenses")
+    assert proj_exp_12.value == 1200.0  # exactly one occurrence in 12 months
+
+    # In a 1-month window: also 1 (since nxt is +30 days)
+    rep_1 = await get_cash_flow_report(session, test_user.id, months=2, interval="daily")
+    proj_exp_1 = next(b for b in rep_1.summary.breakdowns if b.key == "projectedExpenses")
+    assert proj_exp_1.value == 1200.0
+
+
+@pytest.mark.asyncio
+async def test_cash_flow_recurring_starting_in_future(
+    session: AsyncSession, test_user: User
+):
+    """A recurring whose start_date is in the future (e.g., a new subscription
+    starting next month) must be projected from its start_date forward."""
+    account = await _make_manual_account(session, test_user.id, "CF FutureStart")
+    await _add_txn(
+        session, test_user.id, account.id, 1000, "credit",
+        date.today(), source="opening_balance",
+    )
+    today = date.today()
+    # Subscription starts at the 1st of the month after next, $20/month
+    start = _next_first_of_month(_next_first_of_month(today))
+    await _make_recurring(
+        session, test_user.id, account.id,
+        amount=20, txn_type="debit", frequency="monthly",
+        day_of_month=1, start_date=start, next_occurrence=start,
+        description="Future subscription",
+    )
+
+    report = await get_cash_flow_report(session, test_user.id, months=4, interval="daily")
+    proj_exp = next(b for b in report.summary.breakdowns if b.key == "projectedExpenses")
+
+    # The subscription starts 1-2 months out; at month=4 we expect ~2-3 hits.
+    # Loose check: at least 1 occurrence and the very first day shows no impact.
+    assert proj_exp.value >= 20.0
+    first_pt = report.trend[0]
+    assert first_pt.value == 1000.0  # starting balance untouched
+
+
+@pytest.mark.asyncio
+async def test_cash_flow_running_balance_arithmetic(
+    session: AsyncSession, test_user: User
+):
+    """Strict arithmetic: balance on day N == starting + sum(flows up to day N).
+    Anchors the math so refactors can't silently break the cumulative sum."""
+    account = await _make_manual_account(session, test_user.id, "CF Math")
+    await _add_txn(
+        session, test_user.id, account.id, 1000, "credit",
+        date.today(), source="opening_balance",
+    )
+    today = date.today()
+
+    # Place specific transactions on specific days
+    flows = [
+        (today + timedelta(days=3), 200, "credit"),   # +200 on day 3
+        (today + timedelta(days=10), 50, "debit"),    # -50 on day 10
+        (today + timedelta(days=15), 75, "debit"),    # -75 on day 15
+        (today + timedelta(days=20), 500, "credit"),  # +500 on day 20
+    ]
+    for d, amt, typ in flows:
+        await _add_txn(session, test_user.id, account.id, amt, typ, d)
+
+    report = await get_cash_flow_report(session, test_user.id, months=1, interval="daily")
+    by_date = {p.date: p for p in report.trend}
+
+    # Reconstruct expected running balance day by day.
+    expected = 1000.0
+    daily_signed = {d: (amt if typ == "credit" else -amt) for d, amt, typ in flows}
+    for offset in range(0, 25):
+        d = today + timedelta(days=offset)
+        if d in daily_signed:
+            expected += daily_signed[d]
+        pt = by_date.get(d.isoformat())
+        if pt is None:
+            continue  # day past report window — not all 25 days fit
+        assert abs(pt.value - expected) < 0.01, (
+            f"Day {d}: got {pt.value}, expected {expected}"
+        )

@@ -78,7 +78,7 @@ export function TransactionDialog({
   onClose: () => void
   transaction: Transaction | null
   categories: { id: string; name: string; icon: string }[]
-  accounts: { id: string; name: string }[]
+  accounts: { id: string; name: string; type?: string }[]
   recurringMatch?: RecurringTransaction
   onSave: (data: Partial<Transaction>, recurringData?: { frequency: string; end_date?: string }, pendingFiles?: File[], action?: SaveAction) => void
   onDelete?: () => void
@@ -278,7 +278,7 @@ function TransactionForm({
   transaction: Transaction | null
   duplicateDraft: Partial<Transaction> | null
   categories: { id: string; name: string; icon: string }[]
-  accounts: { id: string; name: string }[]
+  accounts: { id: string; name: string; type?: string }[]
   recurringMatch?: RecurringTransaction
   onSave: (data: Partial<Transaction>, recurringData?: { frequency: string; end_date?: string }, pendingFiles?: File[], action?: SaveAction) => void
   onDelete?: () => void

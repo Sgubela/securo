@@ -144,6 +144,136 @@ async def test_split_validation_bubbles_400(client, auth_headers, test_user):
 
 
 @pytest.mark.asyncio
+async def test_create_rejects_percent_under_100(client, auth_headers, test_user):
+    account = await _create_account(client, auth_headers)
+    _, members = await _create_group_with_members(client, auth_headers, "Me", "A")
+
+    resp = await client.post(
+        "/api/transactions",
+        headers=auth_headers,
+        json={
+            "account_id": account["id"],
+            "description": "Bad-pct",
+            "amount": 100,
+            "date": "2026-04-28",
+            "type": "debit",
+            "currency": "USD",
+            "splits": {
+                "share_type": "percent",
+                "splits": [
+                    {"group_member_id": members[0]["id"], "share_pct": "60"},
+                    {"group_member_id": members[1]["id"], "share_pct": "30"},
+                ],
+            },
+        },
+    )
+    assert resp.status_code == 400, resp.text
+    assert "100" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_percent_over_100(client, auth_headers, test_user):
+    account = await _create_account(client, auth_headers)
+    _, members = await _create_group_with_members(client, auth_headers, "Me", "A")
+
+    resp = await client.post(
+        "/api/transactions",
+        headers=auth_headers,
+        json={
+            "account_id": account["id"],
+            "description": "Bad-pct-over",
+            "amount": 100,
+            "date": "2026-04-28",
+            "type": "debit",
+            "currency": "USD",
+            "splits": {
+                "share_type": "percent",
+                "splits": [
+                    {"group_member_id": members[0]["id"], "share_pct": "60"},
+                    {"group_member_id": members[1]["id"], "share_pct": "50"},
+                ],
+            },
+        },
+    )
+    assert resp.status_code == 400, resp.text
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_exact_under_total(client, auth_headers, test_user):
+    account = await _create_account(client, auth_headers)
+    _, members = await _create_group_with_members(client, auth_headers, "Me", "A", "B")
+
+    resp = await client.post(
+        "/api/transactions",
+        headers=auth_headers,
+        json={
+            "account_id": account["id"],
+            "description": "Bad-exact",
+            "amount": 90,
+            "date": "2026-04-28",
+            "type": "debit",
+            "currency": "USD",
+            "splits": {
+                "share_type": "exact",
+                "splits": [
+                    {"group_member_id": members[0]["id"], "share_amount": "30.00"},
+                    {"group_member_id": members[1]["id"], "share_amount": "30.00"},
+                ],
+            },
+        },
+    )
+    assert resp.status_code == 400, resp.text
+
+
+@pytest.mark.asyncio
+async def test_update_rejects_invalid_splits_and_keeps_old(
+    client, auth_headers, test_user
+):
+    """A failed split update must leave the transaction intact (no
+    half-applied state) and keep the previous splits."""
+    account = await _create_account(client, auth_headers)
+    _, members = await _create_group_with_members(client, auth_headers, "Me", "A", "B")
+
+    create = await client.post(
+        "/api/transactions",
+        headers=auth_headers,
+        json={
+            "account_id": account["id"],
+            "description": "Initial",
+            "amount": 90,
+            "date": "2026-04-28",
+            "type": "debit",
+            "currency": "USD",
+            "splits": {
+                "share_type": "equal",
+                "splits": [{"group_member_id": m["id"]} for m in members],
+            },
+        },
+    )
+    tx_id = create.json()["id"]
+    original_splits = create.json()["splits"]
+
+    bad = await client.patch(
+        f"/api/transactions/{tx_id}",
+        headers=auth_headers,
+        json={
+            "splits": {
+                "share_type": "percent",
+                "splits": [
+                    {"group_member_id": members[0]["id"], "share_pct": "20"},
+                    {"group_member_id": members[1]["id"], "share_pct": "30"},
+                ],
+            }
+        },
+    )
+    assert bad.status_code == 400, bad.text
+
+    after = await client.get(f"/api/transactions/{tx_id}", headers=auth_headers)
+    assert after.status_code == 200
+    assert len(after.json()["splits"]) == len(original_splits)
+
+
+@pytest.mark.asyncio
 async def test_balances_reflect_splits(client, auth_headers, test_user):
     account = await _create_account(client, auth_headers)
     group, members = await _create_group_with_members(client, auth_headers, "Me", "A", "B")

@@ -332,6 +332,7 @@ function TransactionForm({
   // owns its own UI state and surfaces a normalized payload here.
   // Seeded from the transaction's existing splits so the edit dialog
   // round-trips them rather than appearing empty.
+  const [splitsValid, setSplitsValid] = useState(true)
   const [splits, setSplits] = useState<TransactionSplitsInput | null>(() => {
     const existing = (seed as Transaction | null | undefined)?.splits
     if (!existing || existing.length === 0) return null
@@ -734,12 +735,19 @@ function TransactionForm({
         )
       })()}
 
-      <TransactionSplitsSection
-        amount={parseFloat(amount) || 0}
-        currency={currency}
-        value={splits}
-        onChange={setSplits}
-      />
+      {/* A settlement-sourced transaction *is* the movement clearing a
+          group debt; splitting it would create circular accounting
+          (the share would settle a debt that this debit is already
+          settling). Hide the section entirely in that case. */}
+      {transaction?.source !== 'settlement' && (
+        <TransactionSplitsSection
+          amount={parseFloat(amount) || 0}
+          currency={currency}
+          value={splits}
+          onChange={setSplits}
+          onValidityChange={setSplitsValid}
+        />
+      )}
 
       {!isCreating && transaction ? (
         <TransactionAttachments
@@ -821,7 +829,7 @@ function TransactionForm({
             <div className="inline-flex">
               <Button
                 type="submit"
-                disabled={loading}
+                disabled={loading || !splitsValid}
                 className="rounded-r-none"
               >
                 {loading ? t('common.loading') : t('common.save')}
@@ -830,7 +838,7 @@ function TransactionForm({
                 <DropdownMenuTrigger asChild>
                   <Button
                     type="button"
-                    disabled={loading}
+                    disabled={loading || !splitsValid}
                     aria-label={t('transactions.moreSaveOptions')}
                     className="rounded-l-none border-l border-l-primary-foreground/20 px-2 has-[>svg]:px-2"
                   >
@@ -848,7 +856,7 @@ function TransactionForm({
               </DropdownMenu>
             </div>
           ) : (
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading || !splitsValid}>
               {loading ? t('common.loading') : t('common.save')}
             </Button>
           )}

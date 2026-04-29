@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import {
   ArrowLeft,
   ArrowRight,
+  ChevronDown,
   Link2,
   Receipt,
   TrendingDown,
@@ -41,6 +42,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { CategoryIcon } from '@/components/category-icon'
 import { PageHeader } from '@/components/page-header'
 import type { GroupMember, GroupSettlement } from '@/types'
 
@@ -78,34 +80,71 @@ function SectionHeader({
   )
 }
 
+interface KpiBreakdownItem {
+  name: string
+  amountText: string
+}
+
 function KpiCard({
   label,
   value,
   icon: Icon,
   tone,
+  breakdown,
 }: {
   label: string
   value: string
   icon: React.ComponentType<{ size?: number; className?: string }>
   tone?: 'positive' | 'negative' | 'neutral'
+  breakdown?: KpiBreakdownItem[]
 }) {
+  const [open, setOpen] = useState(false)
   const toneClass =
     tone === 'positive'
       ? 'text-emerald-600'
       : tone === 'negative'
         ? 'text-rose-500'
         : 'text-foreground'
+  const hasBreakdown = !!breakdown && breakdown.length > 0
   return (
     <div className="bg-card rounded-xl border border-border shadow-sm p-3 sm:p-4">
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          {label}
+      <button
+        type="button"
+        className={`w-full text-left ${hasBreakdown ? 'cursor-pointer' : 'cursor-default'}`}
+        onClick={() => hasBreakdown && setOpen((o) => !o)}
+        disabled={!hasBreakdown}
+        aria-expanded={open}
+      >
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            {label}
+          </p>
+          <div className="flex items-center gap-1 text-muted-foreground">
+            {hasBreakdown && (
+              <ChevronDown
+                size={14}
+                className={`transition-transform ${open ? 'rotate-180' : ''}`}
+              />
+            )}
+            <Icon size={14} />
+          </div>
+        </div>
+        <p className={`text-base sm:text-2xl font-bold tabular-nums mt-1 ${toneClass}`}>
+          {value}
         </p>
-        <Icon size={14} className="text-muted-foreground" />
-      </div>
-      <p className={`text-base sm:text-2xl font-bold tabular-nums mt-1 ${toneClass}`}>
-        {value}
-      </p>
+      </button>
+      {open && hasBreakdown && (
+        <ul className="mt-2 pt-2 border-t border-border space-y-1 text-xs text-muted-foreground">
+          {breakdown!.map((b, i) => (
+            <li key={i} className="flex justify-between gap-2">
+              <span className="truncate">{b.name}</span>
+              <span className="tabular-nums whitespace-nowrap text-foreground">
+                {b.amountText}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -161,7 +200,10 @@ export default function GroupDetailPage() {
   const [editingMember, setEditingMember] = useState<GroupMember | null>(null)
   const [memberName, setMemberName] = useState('')
   const [memberEmail, setMemberEmail] = useState('')
-  const [memberIsSelf, setMemberIsSelf] = useState(false)
+  // The Securo user this member should be linked to (if any). When set,
+  // name+email are derived from that user and the inputs are locked —
+  // is_self is auto-inferred (true iff the linked user is the viewer).
+  const [memberLinkedUserId, setMemberLinkedUserId] = useState<string | null>(null)
 
   const memberMutation = useMutation({
     mutationFn: (payload: GroupMemberPayload) =>
@@ -206,7 +248,7 @@ export default function GroupDetailPage() {
     setEditingMember(null)
     setMemberName('')
     setMemberEmail('')
-    setMemberIsSelf(false)
+    setMemberLinkedUserId(null)
     setMemberDialogOpen(true)
   }
 
@@ -214,21 +256,38 @@ export default function GroupDetailPage() {
     setEditingMember(member)
     setMemberName(member.name)
     setMemberEmail(member.email ?? '')
-    setMemberIsSelf(member.is_self)
+    setMemberLinkedUserId(member.linked_user_id)
     setMemberDialogOpen(true)
   }
 
   const saveMember = () => {
+    // is_self is derived: a linked-to-viewer member is always "you".
+    // Unlinked members can still represent the viewer if explicitly the
+    // first member of their own group (legacy data) — we preserve that
+    // flag during edits via the existing record.
+    const linkedToViewer =
+      memberLinkedUserId !== null && memberLinkedUserId === user?.id
+    const is_self = linkedToViewer || (!memberLinkedUserId && (editingMember?.is_self ?? false))
     memberMutation.mutate({
       name: memberName.trim(),
       email: memberEmail.trim() || null,
-      is_self: memberIsSelf,
+      is_self,
     })
   }
 
-  // Resolve an email to an existing Securo user. The lookup is exact-
-  // match by design (no listing) — typing the wrong address simply
-  // creates a shadow member that the backend can auto-link later.
+  // Directory of all Securo users on the instance — populates the
+  // member-picker dropdown so the host can pick an existing account
+  // rather than typing its email.
+  const { data: userDirectory } = useQuery({
+    queryKey: ['users', 'directory'],
+    queryFn: () => usersApi.directory(),
+    enabled: memberDialogOpen,
+    staleTime: 60_000,
+  })
+
+  // Resolve a typed email to an existing Securo user, kept as a
+  // fallback for the "I know their email but they aren't in my list
+  // for some reason" path.
   const trimmedEmail = memberEmail.trim()
   const { data: lookupResult } = useQuery({
     queryKey: ['users', 'lookup', trimmedEmail.toLowerCase()],
@@ -245,6 +304,7 @@ export default function GroupDetailPage() {
   const [settleAmount, setSettleAmount] = useState('')
   const [settleDate, setSettleDate] = useState(new Date().toISOString().split('T')[0])
   const [settleNotes, setSettleNotes] = useState('')
+  const [settleCurrency, setSettleCurrency] = useState('USD')
   const [settleAffectAccount, setSettleAffectAccount] = useState(false)
   const [settleAccountId, setSettleAccountId] = useState('')
 
@@ -283,12 +343,21 @@ export default function GroupDetailPage() {
     },
   })
 
-  const openSettleUp = (from?: string, to?: string, amount?: number) => {
+  const openSettleUp = (
+    from?: string,
+    to?: string,
+    amount?: number,
+    currency?: string,
+  ) => {
     setSettleFrom(from ?? '')
     setSettleTo(to ?? '')
     setSettleAmount(amount != null ? amount.toFixed(2) : '')
     setSettleDate(new Date().toISOString().split('T')[0])
     setSettleNotes('')
+    // Use the line's currency when settling a specific debt, falling
+    // back to the group's default for free-form settlements. This
+    // matters when the same group has cross-currency debts.
+    setSettleCurrency(currency ?? group?.default_currency ?? 'USD')
     setSettleAffectAccount(false)
     setSettleAccountId('')
     setSettleOpen(true)
@@ -300,7 +369,7 @@ export default function GroupDetailPage() {
       from_member_id: settleFrom,
       to_member_id: settleTo,
       amount: parseFloat(settleAmount),
-      currency: group?.default_currency ?? 'USD',
+      currency: settleCurrency,
       date: settleDate,
       notes: settleNotes.trim() || null,
     }
@@ -322,48 +391,103 @@ export default function GroupDetailPage() {
   // ── KPIs ─────────────────────────────────────────────────────
   const groupCurrency = group?.default_currency ?? 'USD'
 
+  // Sum cross-currency rows in the group's primary terms — using
+  // amount_primary when available, otherwise the native amount. Without
+  // this, EUR rows would silently add as USD (a €100 hotel would count
+  // as $100, throwing off the KPI vs. spending-by-category breakdown).
   const totalMoved = useMemo(() => {
     if (!groupTxs) return 0
-    return groupTxs.reduce((sum, tx) => sum + Number(tx.amount), 0)
+    return groupTxs.reduce(
+      (sum, tx) => sum + Number(tx.amount_primary ?? tx.amount),
+      0,
+    )
   }, [groupTxs])
 
+  // KPIs roll up across currencies using each line's
+  // amount_in_default_currency (FX-converted server-side). Filtering by
+  // a single currency would otherwise hide debts in another currency
+  // — e.g. a EUR-only line wouldn't show up for a USD-default group.
   const owedToViewer = useMemo(() => {
     if (!balances) return 0
     if (isOwner) {
       return balances.lines
-        .filter((l) => l.amount > 0 && l.currency === groupCurrency)
-        .reduce((s, l) => s + Number(l.amount), 0)
+        .filter((l) => l.amount > 0)
+        .reduce((s, l) => s + Number(l.amount_in_default_currency), 0)
     }
-    // Linked member: any negative line about them = the owner owes them
     if (!viewerMember) return 0
-    const myLine = balances.lines.find(
-      (l) => l.member_id === viewerMember.id && l.currency === groupCurrency,
-    )
-    return myLine && myLine.amount < 0 ? Math.abs(Number(myLine.amount)) : 0
-  }, [balances, isOwner, viewerMember, groupCurrency])
+    return balances.lines
+      .filter((l) => l.member_id === viewerMember.id && l.amount < 0)
+      .reduce((s, l) => s + Math.abs(Number(l.amount_in_default_currency)), 0)
+  }, [balances, isOwner, viewerMember])
 
   const viewerOwes = useMemo(() => {
     if (!balances) return 0
     if (isOwner) {
       return Math.abs(
         balances.lines
-          .filter((l) => l.amount < 0 && l.currency === groupCurrency)
-          .reduce((s, l) => s + Number(l.amount), 0),
+          .filter((l) => l.amount < 0)
+          .reduce((s, l) => s + Number(l.amount_in_default_currency), 0),
       )
     }
     if (!viewerMember) return 0
-    const myLine = balances.lines.find(
-      (l) => l.member_id === viewerMember.id && l.currency === groupCurrency,
-    )
-    return myLine && myLine.amount > 0 ? Number(myLine.amount) : 0
-  }, [balances, isOwner, viewerMember, groupCurrency])
+    return balances.lines
+      .filter((l) => l.member_id === viewerMember.id && l.amount > 0)
+      .reduce((s, l) => s + Number(l.amount_in_default_currency), 0)
+  }, [balances, isOwner, viewerMember])
+
+  // Per-line breakdown for the two debt KPIs. Each row shows the other
+  // party's name and the amount in its native currency — so a EUR line
+  // stays "€100" instead of being lossy-rolled into the USD KPI total.
+  const memberNameById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const m of group?.members ?? []) map.set(m.id, m.name)
+    return map
+  }, [group?.members])
+
+  const owedToViewerBreakdown = useMemo<KpiBreakdownItem[]>(() => {
+    if (!balances) return []
+    if (isOwner) {
+      return balances.lines
+        .filter((l) => l.amount > 0)
+        .map((l) => ({
+          name: memberNameById.get(l.member_id) ?? '—',
+          amountText: formatCurrency(Number(l.amount), l.currency, locale),
+        }))
+    }
+    if (!viewerMember || !ownerMember) return []
+    return balances.lines
+      .filter((l) => l.member_id === viewerMember.id && l.amount < 0)
+      .map((l) => ({
+        name: ownerMember.name,
+        amountText: formatCurrency(Math.abs(Number(l.amount)), l.currency, locale),
+      }))
+  }, [balances, isOwner, viewerMember, ownerMember, memberNameById, locale])
+
+  const viewerOwesBreakdown = useMemo<KpiBreakdownItem[]>(() => {
+    if (!balances) return []
+    if (isOwner) {
+      return balances.lines
+        .filter((l) => l.amount < 0)
+        .map((l) => ({
+          name: memberNameById.get(l.member_id) ?? '—',
+          amountText: formatCurrency(Math.abs(Number(l.amount)), l.currency, locale),
+        }))
+    }
+    if (!viewerMember || !ownerMember) return []
+    return balances.lines
+      .filter((l) => l.member_id === viewerMember.id && l.amount > 0)
+      .map((l) => ({
+        name: ownerMember.name,
+        amountText: formatCurrency(Number(l.amount), l.currency, locale),
+      }))
+  }, [balances, isOwner, viewerMember, ownerMember, memberNameById, locale])
 
   const monthlyData = useMemo(() => {
     if (!groupTxs || groupTxs.length === 0) return []
     const byMonth = new Map<string, number>()
     for (const tx of groupTxs) {
       const m = tx.date.slice(0, 7)
-      byMonth.set(m, (byMonth.get(m) ?? 0) + Number(tx.amount))
+      byMonth.set(m, (byMonth.get(m) ?? 0) + Number(tx.amount_primary ?? tx.amount))
     }
     return Array.from(byMonth.entries())
       .sort(([a], [b]) => a.localeCompare(b))
@@ -372,6 +496,35 @@ export default function GroupDetailPage() {
         total: Number(total.toFixed(2)),
       }))
   }, [groupTxs, locale])
+
+  // Group spending broken down by category — for the stacked horizontal
+  // bar. We sum debits only (income/credits aren't "spending"). When a
+  // tx has amount_primary we use that so cross-currency rows are
+  // comparable; otherwise fall back to the native amount, which is fine
+  // for single-currency groups.
+  const categoryBreakdown = useMemo(() => {
+    if (!groupTxs || groupTxs.length === 0) return [] as { id: string; name: string; color: string; total: number }[]
+    const map = new Map<string, { id: string; name: string; color: string; total: number }>()
+    for (const tx of groupTxs) {
+      if (tx.type !== 'debit') continue
+      const id = tx.category?.id ?? 'uncategorized'
+      const name = tx.category?.name ?? t('splitGroups.uncategorized')
+      const color = tx.category?.color ?? '#6B7280'
+      const value = Number(tx.amount_primary ?? tx.amount)
+      const existing = map.get(id)
+      if (existing) {
+        existing.total += value
+      } else {
+        map.set(id, { id, name, color, total: value })
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.total - a.total)
+  }, [groupTxs, t])
+
+  const categoryBreakdownTotal = useMemo(
+    () => categoryBreakdown.reduce((s, c) => s + c.total, 0),
+    [categoryBreakdown],
+  )
 
   if (loadingGroup) {
     return (
@@ -418,12 +571,14 @@ export default function GroupDetailPage() {
           value={formatCurrency(owedToViewer, groupCurrency, locale)}
           icon={TrendingUp}
           tone={owedToViewer > 0 ? 'positive' : 'neutral'}
+          breakdown={owedToViewerBreakdown}
         />
         <KpiCard
           label={t('splitGroups.kpiYouOwe')}
           value={formatCurrency(viewerOwes, groupCurrency, locale)}
           icon={TrendingDown}
           tone={viewerOwes > 0 ? 'negative' : 'neutral'}
+          breakdown={viewerOwesBreakdown}
         />
       </div>
 
@@ -460,6 +615,52 @@ export default function GroupDetailPage() {
         </SectionCard>
       )}
 
+      {/* Category distribution — single horizontal stacked bar split
+          by category, with a legend showing absolute and % per slice. */}
+      {categoryBreakdownTotal > 0 && (
+        <SectionCard>
+          <SectionHeader
+            title={t('splitGroups.byCategory')}
+            description={t('splitGroups.byCategoryHint')}
+          />
+          <div className="px-4 py-3 space-y-3">
+            <div className="flex h-3 w-full overflow-hidden rounded-full bg-muted">
+              {categoryBreakdown.map((c) => {
+                const pct = (c.total / categoryBreakdownTotal) * 100
+                return (
+                  <div
+                    key={c.id}
+                    style={{ width: `${pct}%`, backgroundColor: c.color }}
+                    title={`${c.name} · ${formatCurrency(c.total, groupCurrency, locale)} (${pct.toFixed(1)}%)`}
+                  />
+                )
+              })}
+            </div>
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              {categoryBreakdown.map((c) => {
+                const pct = (c.total / categoryBreakdownTotal) * 100
+                return (
+                  <li key={c.id} className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="h-2.5 w-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: c.color }}
+                      />
+                      <span className="truncate">{c.name}</span>
+                    </span>
+                    <span className="tabular-nums whitespace-nowrap text-muted-foreground">
+                      {formatCurrency(c.total, groupCurrency, locale)} · {pct.toFixed(0)}%
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        </SectionCard>
+      )}
+
+      {/* 2×2 grid: members + balances on top, transactions + settlements below */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
       {/* Members */}
       <SectionCard>
         <SectionHeader
@@ -577,10 +778,10 @@ export default function GroupDetailPage() {
                             if (!balances.self_member_id) return
                             if (positive) {
                               // Member owes the owner → from = member, to = owner
-                              openSettleUp(line.member_id, balances.self_member_id, Math.abs(line.amount))
+                              openSettleUp(line.member_id, balances.self_member_id, Math.abs(line.amount), line.currency)
                             } else {
                               // Owner owes the member → from = owner, to = member
-                              openSettleUp(balances.self_member_id, line.member_id, Math.abs(line.amount))
+                              openSettleUp(balances.self_member_id, line.member_id, Math.abs(line.amount), line.currency)
                             }
                           }}
                         >
@@ -634,9 +835,14 @@ export default function GroupDetailPage() {
             {groupTxs.slice(0, 8).map((tx) => (
               <li
                 key={tx.id}
-                className="flex items-center justify-between px-4 py-3 hover:bg-muted cursor-pointer transition-colors"
+                className="flex items-center gap-3 px-4 py-3 hover:bg-muted cursor-pointer transition-colors"
                 onClick={() => navigate(`/transactions?group_id=${groupId}&highlight=${tx.id}`)}
               >
+                <CategoryIcon
+                  icon={tx.category?.icon}
+                  color={tx.category?.color}
+                  size="md"
+                />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">
                     {tx.description}
@@ -717,6 +923,7 @@ export default function GroupDetailPage() {
           </div>
         )}
       </SectionCard>
+      </div>
 
       {/* Member dialog */}
       <Dialog open={memberDialogOpen} onOpenChange={setMemberDialogOpen}>
@@ -727,9 +934,51 @@ export default function GroupDetailPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            {/* Pick an existing Securo user, or leave as "non-user" to
+                add someone without an account (the most common case for
+                roommates/relatives who don't use the app yet). When a
+                user is picked, name+email come from their account and
+                the inputs are locked — switch back to "Sem vínculo" to
+                edit them by hand. */}
+            <div className="space-y-2">
+              <Label>{t('splitGroups.linkedUser')}</Label>
+              <select
+                className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background h-9 focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
+                value={memberLinkedUserId ?? ''}
+                onChange={(e) => {
+                  const id = e.target.value || null
+                  setMemberLinkedUserId(id)
+                  if (id) {
+                    const picked = userDirectory?.find((u) => u.id === id)
+                    if (picked) {
+                      // Always reflect the currently picked user — the
+                      // inputs are locked, so the source of truth is
+                      // whatever account is selected here.
+                      setMemberEmail(picked.email)
+                      setMemberName(picked.email.split('@')[0])
+                    }
+                  }
+                }}
+              >
+                <option value="">{t('splitGroups.linkedUserNone')}</option>
+                {(userDirectory ?? []).map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.email}
+                    {u.id === user?.id ? ` (${t('splitGroups.you')})` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                {t('splitGroups.linkedUserHint')}
+              </p>
+            </div>
             <div className="space-y-2">
               <Label>{t('splitGroups.memberName')}</Label>
-              <Input value={memberName} onChange={(e) => setMemberName(e.target.value)} />
+              <Input
+                value={memberName}
+                onChange={(e) => setMemberName(e.target.value)}
+                disabled={memberLinkedUserId !== null}
+              />
             </div>
             <div className="space-y-2">
               <Label>{t('splitGroups.memberEmail')}</Label>
@@ -737,8 +986,14 @@ export default function GroupDetailPage() {
                 type="email"
                 value={memberEmail}
                 onChange={(e) => setMemberEmail(e.target.value)}
+                disabled={memberLinkedUserId !== null}
               />
-              {lookupResult ? (
+              {memberLinkedUserId !== null ? (
+                <p className="text-xs text-emerald-600 inline-flex items-center gap-1">
+                  <Link2 size={11} />
+                  {t('splitGroups.willLinkToUser', { email: memberEmail })}
+                </p>
+              ) : lookupResult ? (
                 <p className="text-xs text-emerald-600 inline-flex items-center gap-1">
                   <Link2 size={11} />
                   {t('splitGroups.willLinkToUser', { email: lookupResult.email })}
@@ -749,15 +1004,6 @@ export default function GroupDetailPage() {
                 </p>
               )}
             </div>
-            <label className="text-sm text-muted-foreground inline-flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={memberIsSelf}
-                onChange={(e) => setMemberIsSelf(e.target.checked)}
-                className="h-4 w-4 rounded border-border accent-primary"
-              />
-              {t('splitGroups.isSelf')}
-            </label>
           </div>
           <DialogFooter className={editingMember ? 'flex justify-between sm:justify-between' : ''}>
             {editingMember && (
@@ -791,13 +1037,23 @@ export default function GroupDetailPage() {
           <DialogHeader>
             <DialogTitle>{t('splitGroups.recordSettlement')}</DialogTitle>
           </DialogHeader>
+          {(() => {
+            const myMemberId = viewerMember?.id ?? (isOwner ? ownerMember?.id : null)
+            const viewerIsPayer = !!myMemberId && settleFrom === myMemberId
+            return (
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>{t('splitGroups.from')}</Label>
               <select
                 className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
                 value={settleFrom}
-                onChange={(e) => setSettleFrom(e.target.value)}
+                onChange={(e) => {
+                  setSettleFrom(e.target.value)
+                  // Reset the account-side toggle: it's only meaningful
+                  // when the viewer is the payer.
+                  setSettleAffectAccount(false)
+                  setSettleAccountId('')
+                }}
               >
                 <option value="">{t('splitGroups.selectMember')}</option>
                 {group.members.map((m) => (
@@ -822,8 +1078,8 @@ export default function GroupDetailPage() {
                 ))}
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-2 col-span-2">
                 <Label>{t('splitGroups.amount')}</Label>
                 <Input
                   type="number"
@@ -833,13 +1089,21 @@ export default function GroupDetailPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>{t('splitGroups.date')}</Label>
+                <Label>{t('splitGroups.currency')}</Label>
                 <Input
-                  type="date"
-                  value={settleDate}
-                  onChange={(e) => setSettleDate(e.target.value)}
+                  value={settleCurrency}
+                  maxLength={3}
+                  onChange={(e) => setSettleCurrency(e.target.value.toUpperCase())}
                 />
               </div>
+            </div>
+            <div className="space-y-2">
+              <Label>{t('splitGroups.date')}</Label>
+              <Input
+                type="date"
+                value={settleDate}
+                onChange={(e) => setSettleDate(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label>{t('splitGroups.notes')}</Label>
@@ -851,41 +1115,47 @@ export default function GroupDetailPage() {
               />
             </div>
 
-            {/* Optional account integration — turn the social-ledger
-                settlement into a real money movement on the payer's
-                side. The receiver's bank entry is matched separately
-                via sync. */}
-            <div className="space-y-2 pt-2 border-t border-border">
-              <label className="text-sm font-medium inline-flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settleAffectAccount}
-                  onChange={(e) => setSettleAffectAccount(e.target.checked)}
-                  className="h-4 w-4 rounded border-border accent-primary"
-                />
-                {t('splitGroups.affectAccount')}
-              </label>
-              {settleAffectAccount && (
-                <div className="space-y-1">
-                  <select
-                    className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
-                    value={settleAccountId}
-                    onChange={(e) => setSettleAccountId(e.target.value)}
-                  >
-                    <option value="">{t('splitGroups.selectAccount')}</option>
-                    {(accountsList ?? []).map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.display_name || a.name}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-muted-foreground">
-                    {t('splitGroups.affectAccountHint')}
-                  </p>
+            {/* Optional account integration — only relevant when the
+                viewer is the *payer* of this settlement. In that case
+                we can write a real debit to one of their accounts. The
+                receiver's mirror credit is created automatically by the
+                backend when the receiver is a Securo user, so we don't
+                expose that path in the UI here. */}
+            {viewerIsPayer && (
+                <div className="space-y-2 pt-2 border-t border-border">
+                  <label className="text-sm font-medium inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settleAffectAccount}
+                      onChange={(e) => setSettleAffectAccount(e.target.checked)}
+                      className="h-4 w-4 rounded border-border accent-primary"
+                    />
+                    {t('splitGroups.affectAccount')}
+                  </label>
+                  {settleAffectAccount && (
+                    <div className="space-y-1">
+                      <select
+                        className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
+                        value={settleAccountId}
+                        onChange={(e) => setSettleAccountId(e.target.value)}
+                      >
+                        <option value="">{t('splitGroups.selectAccount')}</option>
+                        {(accountsList ?? []).map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.display_name || a.name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-muted-foreground">
+                        {t('splitGroups.affectAccountHint')}
+                      </p>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+            )}
           </div>
+            )
+          })()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setSettleOpen(false)}>
               {t('common.cancel')}

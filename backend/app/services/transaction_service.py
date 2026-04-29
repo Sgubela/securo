@@ -240,8 +240,10 @@ async def get_transactions(
         # Owned rows stay as-is. We pre-compute the viewer's linked
         # member ids → group ids once, then look up each transaction's
         # split that targets one of those member ids.
-        if not use_group_scope:
-            await _tag_shared_view(session, transactions, user_id)
+        # Run for both default and group-scoped queries: when filtering
+        # by `group_id`, a linked member sees the owner's transactions
+        # and the frontend needs `is_shared` to lock them from edits.
+        await _tag_shared_view(session, transactions, user_id)
 
     return transactions, total or 0
 
@@ -251,10 +253,20 @@ async def _tag_shared_view(
     transactions: list[Transaction],
     user_id: uuid.UUID,
 ) -> None:
-    """Annotate transactions the viewer doesn't own (but is a linked
-    split member of) with `is_shared`, `viewer_share`, `group_id`.
+    """Annotate transactions with split metadata for the viewer:
+
+    - `is_shared`: true when the viewer doesn't own the parent but is a
+      linked split member.
+    - `viewer_share`: the viewer's share amount (only when shared).
+    - `group_id`: the group the splits belong to. Set for both owner
+      and linked-member views so the UI can show a group badge on
+      either side.
+    - `parent_owner_name`: friendly name of the parent owner; only
+      meaningful for shared rows.
+
     Mutates the in-memory objects so Pydantic's from_attributes picks
-    them up directly."""
+    them up directly.
+    """
     from app.models.group import GroupMember
 
     member_rows = await session.execute(
@@ -263,18 +275,55 @@ async def _tag_shared_view(
         )
     )
     member_to_group = {row.id: row.group_id for row in member_rows}
-    if not member_to_group:
+
+    # Map every split-member that appears in this batch → group, so we
+    # can also tag owner-side transactions with their group. (The
+    # viewer-linked map above only covers the viewer's own member ids.)
+    all_split_member_ids: set[uuid.UUID] = set()
+    for tx in transactions:
+        for s in tx.splits or []:
+            all_split_member_ids.add(s.group_member_id)
+    split_member_to_group: dict[uuid.UUID, uuid.UUID] = {}
+    if all_split_member_ids:
+        rows = await session.execute(
+            select(GroupMember.id, GroupMember.group_id).where(
+                GroupMember.id.in_(all_split_member_ids)
+            )
+        )
+        split_member_to_group = {row.id: row.group_id for row in rows}
+
+    if not member_to_group and not split_member_to_group:
         for tx in transactions:
             tx.is_shared = False
             tx.viewer_share = None
             tx.group_id = None
+            tx.parent_owner_name = None
         return
+
+    # Friendly name for the parent's owner, per group: the `is_self`
+    # member represents the group owner / payer. Cached once per call.
+    self_member_rows = await session.execute(
+        select(GroupMember.group_id, GroupMember.name).where(
+            GroupMember.group_id.in_(set(member_to_group.values())),
+            GroupMember.is_self.is_(True),
+        )
+    )
+    owner_name_by_group = {row.group_id: row.name for row in self_member_rows}
 
     for tx in transactions:
         if tx.user_id == user_id:
+            # Owner of the parent — not "shared" but still tag the
+            # group_id so the UI can show a group badge for owners.
             tx.is_shared = False
             tx.viewer_share = None
-            tx.group_id = None
+            tx.parent_owner_name = None
+            owner_group_id: Optional[uuid.UUID] = None
+            for s in tx.splits or []:
+                gid = split_member_to_group.get(s.group_member_id)
+                if gid is not None:
+                    owner_group_id = gid
+                    break
+            tx.group_id = owner_group_id
             continue
         # The viewer doesn't own this; find their split share.
         match = next(
@@ -285,10 +334,17 @@ async def _tag_shared_view(
             tx.is_shared = False
             tx.viewer_share = None
             tx.group_id = None
+            tx.parent_owner_name = None
         else:
             tx.is_shared = True
             tx.viewer_share = match.share_amount
             tx.group_id = member_to_group[match.group_member_id]
+            tx.parent_owner_name = owner_name_by_group.get(tx.group_id)
+            # Hide attachment count on shared rows — Bob can see the
+            # paperclip but the API would 403 the actual download
+            # (attachment auth is owner-only). Avoid the dead-end UX
+            # by not advertising files he can't open.
+            tx.attachment_count = 0
 
 
 async def get_transaction(

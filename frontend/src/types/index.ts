@@ -162,6 +162,9 @@ export interface Transaction {
   is_shared?: boolean
   viewer_share?: number | null
   group_id?: string | null
+  // Display name of the parent's owner (the person who actually paid).
+  // Derived per-request from the group's `is_self` member.
+  parent_owner_name?: string | null
 }
 
 export type ShareType = 'equal' | 'exact' | 'percent'
@@ -236,11 +239,14 @@ export interface GroupBalanceLine {
   currency: string
   // Positive = member owes the owner. Negative = owner owes member.
   amount: number
+  // FX-converted to the group's default currency for cross-currency rollups.
+  amount_in_default_currency: number
 }
 
 export interface GroupBalances {
   group_id: string
   self_member_id: string | null
+  default_currency: string
   lines: GroupBalanceLine[]
 }
 

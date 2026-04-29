@@ -15,6 +15,9 @@ from app.models.recurring_transaction import RecurringTransaction
 from app.schemas.dashboard import DashboardSummary, SpendingByCategory, MonthlyTrend, ProjectedTransaction, DailyBalance, BalanceHistory
 from app.services._query_filters import (
     counts_as_pnl,
+    counts_as_user_pnl,
+    owner_split_offset_by_category,
+    owner_split_offset_pnl,
     viewer_shared_pnl,
     viewer_shared_spending_by_category,
 )
@@ -116,8 +119,9 @@ async def get_summary(
             total_balance[proj["currency"]] = total_balance.get(proj["currency"], 0.0) + signed
 
     # Monthly income and expenses — exclude opening_balance so initial deposits
-    # don't inflate the month's income figure. counts_as_pnl() also skips
-    # paired transfers and transfer-like categories (e.g. Investimentos).
+    # don't inflate the month's income figure. counts_as_user_pnl() skips
+    # paired transfers, transfer-like categories AND settlement movements
+    # (whose offset is already in the owner's share, see share-only model).
     monthly_result = await session.execute(
         select(
             func.sum(case((Transaction.type == "credit", Transaction.amount), else_=0)),
@@ -130,12 +134,20 @@ async def get_summary(
             report_date >= month_start,
             report_date < month_end,
             Transaction.source != "opening_balance",
-            counts_as_pnl(),
+            counts_as_user_pnl(),
         )
     )
     monthly_row = monthly_result.one()
     monthly_income = float(monthly_row[0] or 0)
     monthly_expenses = float(monthly_row[1] or 0)
+
+    # Subtract non-owner shares of the user's own split txs — they paid
+    # for the others, so those amounts aren't their actual cost.
+    own_offset_inc, own_offset_exp = await owner_split_offset_pnl(
+        session, user_id, month_start, month_end, use_effective_date=False
+    )
+    monthly_income -= own_offset_inc
+    monthly_expenses -= own_offset_exp
 
     # Add the viewer's share from group splits where they're a linked
     # member but not the owner. Their concert ticket paid by a friend
@@ -170,6 +182,10 @@ async def get_summary(
         Transaction.user_id == user_id,
         Transaction.category_id.is_(None),
         Transaction.source != "opening_balance",
+        # Settlement-sourced rows are auto-generated movements (paying
+        # back / receiving back a group debt). They aren't expenses or
+        # income that need a category, so exclude them.
+        Transaction.source != "settlement",
         Transaction.transfer_pair_id.is_(None),
     ]
     pending_categorization = await session.scalar(
@@ -219,7 +235,7 @@ async def get_summary(
             report_date >= month_start,
             report_date < month_end,
             Transaction.source != "opening_balance",
-            counts_as_pnl(),
+            counts_as_user_pnl(),
             Transaction.amount_primary.isnot(None),
         )
     )
@@ -227,6 +243,18 @@ async def get_summary(
     if primary_row[0] is not None or primary_row[1] is not None:
         monthly_income_primary = float(primary_row[0] or 0)
         monthly_expenses_primary = abs(float(primary_row[1] or 0))
+
+    # Apply share-only offset in primary currency (FX-converted).
+    own_offset_inc_pri, own_offset_exp_pri = await owner_split_offset_pnl(
+        session,
+        user_id,
+        month_start,
+        month_end,
+        use_effective_date=False,
+        primary_currency=primary_currency,
+    )
+    monthly_income_primary -= own_offset_inc_pri
+    monthly_expenses_primary -= own_offset_exp_pri
 
     # Add the viewer's shared shares to primary totals too. The shares
     # are stored in the parent transaction's currency, so we convert
@@ -262,7 +290,7 @@ async def get_summary(
             Transaction.source != "opening_balance",
             report_date >= month_start,
             report_date < month_end,
-            counts_as_pnl(),
+            counts_as_user_pnl(),
         )
         .group_by(Transaction.currency)
     )
@@ -389,6 +417,7 @@ async def get_spending_by_category(
 
     user = await session.get(User, user_id)
     accounting_mode = await get_credit_card_accounting_mode(session)
+    primary_currency = user.primary_currency if user else get_settings().default_currency
     report_date = (
         Transaction.effective_date if accounting_mode == "accrual" else Transaction.date
     )
@@ -412,7 +441,7 @@ async def get_spending_by_category(
             Transaction.type == "debit",
             report_date >= month_start,
             report_date < month_end,
-            counts_as_pnl(),
+            counts_as_user_pnl(),
         )
         .group_by(Category.id, Category.name, Category.icon, Category.color)
         .order_by(func.sum(_primary_amount_expr()).desc())
@@ -429,12 +458,30 @@ async def get_spending_by_category(
             "total": abs(float(row[4] or 0)),
         }
 
+    # Subtract non-owner shares per category — owner-side splits should
+    # contribute only the owner's share, not the full amount.
+    owner_offset = await owner_split_offset_by_category(
+        session,
+        user_id,
+        month_start,
+        month_end,
+        use_effective_date=accounting_mode == "accrual",
+        primary_currency=primary_currency,
+    )
+    for cat_uuid, offset_total in owner_offset.items():
+        cat_id = str(cat_uuid) if cat_uuid else None
+        if cat_id in spending_map:
+            spending_map[cat_id]["total"] -= offset_total
+            if spending_map[cat_id]["total"] <= 0:
+                spending_map.pop(cat_id)
+
     # Add shared shares — the viewer's portion of group-split debits
     # they participate in but don't own. The category comes from the
     # parent transaction.
     shared_by_cat = await viewer_shared_spending_by_category(
         session, user_id, month_start, month_end,
         use_effective_date=accounting_mode == "accrual",
+        primary_currency=primary_currency,
     )
     if shared_by_cat:
         cat_meta_cache: dict[str, dict] = {}
@@ -470,7 +517,6 @@ async def get_spending_by_category(
 
     # Add virtual recurring projections (debit only), converted to primary currency
     projections = await _get_recurring_projections(session, user_id, month_start, month_end)
-    primary_currency = user.primary_currency if user else get_settings().default_currency
     # We need category info for recurring projections — fetch categories
     cat_cache: dict[str, dict] = {}
     for proj in projections:
@@ -542,22 +588,50 @@ async def get_monthly_trend(
             Transaction.user_id == user_id,
             Account.is_closed == False,
             Transaction.source != "opening_balance",
-            counts_as_pnl(),
+            counts_as_user_pnl(),
         )
         .group_by(month_label)
         .order_by(month_label.desc())
         .limit(months)
     )
 
-    trends = []
-    for row in result.all():
-        trends.append(MonthlyTrend(
-            month=row[0],
-            income=float(row[1] or 0),
-            expenses=abs(float(row[2] or 0)),
-        ))
+    user = await session.get(User, user_id)
+    primary_currency = user.primary_currency if user else get_settings().default_currency
 
-    return list(reversed(trends))
+    trends_raw: list[tuple[str, float, float]] = []
+    for row in result.all():
+        trends_raw.append((row[0], float(row[1] or 0), abs(float(row[2] or 0))))
+
+    # Subtract owner non-owner-share offsets per month, and add the
+    # viewer's shares of others' splits.
+    adjusted: list[MonthlyTrend] = []
+    for month_str, income, expenses in trends_raw:
+        year, mnum = month_str.split("-")
+        m_start = date(int(year), int(mnum), 1)
+        m_end = (
+            date(int(year), int(mnum) + 1, 1)
+            if int(mnum) < 12
+            else date(int(year) + 1, 1, 1)
+        )
+        own_inc, own_exp = await owner_split_offset_pnl(
+            session, user_id, m_start, m_end,
+            use_effective_date=accounting_mode == "accrual",
+            primary_currency=primary_currency,
+        )
+        shared_inc, shared_exp = await viewer_shared_pnl(
+            session, user_id, m_start, m_end,
+            use_effective_date=accounting_mode == "accrual",
+            primary_currency=primary_currency,
+        )
+        adjusted.append(
+            MonthlyTrend(
+                month=month_str,
+                income=max(0.0, income - own_inc + shared_inc),
+                expenses=max(0.0, expenses - own_exp + shared_exp),
+            )
+        )
+
+    return list(reversed(adjusted))
 
 
 async def get_projected_transactions(

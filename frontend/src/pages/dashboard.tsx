@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { ptBR, enUS } from 'date-fns/locale'
-import { dashboard, transactions, budgets, categories as categoriesApi, accounts as accountsApi, goals as goalsApi } from '@/lib/api'
+import { dashboard, transactions, budgets, categories as categoriesApi, accounts as accountsApi, goals as goalsApi, groups as groupsApi } from '@/lib/api'
 import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
@@ -126,6 +126,18 @@ export default function DashboardPage() {
       exclude_transfers: true,
     }),
   })
+
+  // Resolve group_id → name for the badge on split transactions.
+  const { data: allGroups } = useQuery({
+    queryKey: ['groups', 'all'],
+    queryFn: () => groupsApi.list(true),
+    staleTime: 60_000,
+  })
+  const groupNameById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const g of allGroups ?? []) map.set(g.id, g.name)
+    return map
+  }, [allGroups])
 
   const { data: projectedTxs, isLoading: projectedTxLoading } = useQuery({
     queryKey: ['dashboard', 'projected-transactions', selectedMonth],
@@ -283,6 +295,8 @@ export default function DashboardPage() {
     isShared: boolean
     parentTotal: number | null
     groupId: string | null
+    parentOwnerName: string | null
+    groupName: string | null
   }
 
   const TX_PER_PAGE = 10
@@ -292,6 +306,7 @@ export default function DashboardPage() {
       const isShared = !!tx.is_shared
       const displayAmount =
         isShared && tx.viewer_share != null ? Number(tx.viewer_share) : Number(tx.amount)
+      const groupId = tx.group_id ?? null
       rows.push({
         key: tx.id,
         description: tx.description,
@@ -307,7 +322,9 @@ export default function DashboardPage() {
         attachmentCount: tx.attachment_count ?? 0,
         isShared,
         parentTotal: isShared ? Number(tx.amount) : null,
-        groupId: tx.group_id ?? null,
+        groupId,
+        parentOwnerName: isShared ? tx.parent_owner_name ?? null : null,
+        groupName: groupId ? groupNameById.get(groupId) ?? null : null,
       })
     }
     for (const pt of projectedTxs ?? []) {
@@ -327,11 +344,13 @@ export default function DashboardPage() {
         isShared: false,
         parentTotal: null,
         groupId: null,
+        parentOwnerName: null,
+        groupName: null,
       })
     }
     rows.sort((a, b) => txSortDesc ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date))
     return rows
-  }, [currentMonthTxs, projectedTxs, txSortDesc])
+  }, [currentMonthTxs, projectedTxs, txSortDesc, groupNameById])
 
   const txTotalPages = Math.ceil(allDisplayRows.length / TX_PER_PAGE)
   const pagedRows = allDisplayRows.slice((txPage - 1) * TX_PER_PAGE, txPage * TX_PER_PAGE)
@@ -915,9 +934,11 @@ export default function DashboardPage() {
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               <p className="text-sm font-semibold text-foreground truncate">{row.description}</p>
-                              {row.isShared && (
+                              {row.groupId && (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300 shrink-0 uppercase tracking-wide">
-                                  {t('splitGroups.sharedShortBadge')}
+                                  {row.isShared && row.parentOwnerName
+                                    ? t('splitGroups.sharedShortBadgeAuthor', { author: row.parentOwnerName })
+                                    : row.groupName ?? t('splitGroups.sharedShortBadge')}
                                 </span>
                               )}
                               {row.isProjected && (

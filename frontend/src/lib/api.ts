@@ -561,6 +561,10 @@ export const users = {
       throw err
     }
   },
+  directory: async (): Promise<UserLookupResult[]> => {
+    const { data } = await api.get('/users/directory')
+    return data
+  },
 }
 
 

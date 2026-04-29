@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
-import { groups as groupsApi, type GroupCreatePayload } from '@/lib/api'
+import { groups as groupsApi, currencies as currenciesApi, type GroupCreatePayload } from '@/lib/api'
+import { useAuth } from '@/contexts/auth-context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -34,6 +35,8 @@ export default function GroupsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { user } = useAuth()
+  const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Group | null>(null)
@@ -41,8 +44,14 @@ export default function GroupsPage() {
 
   const [name, setName] = useState('')
   const [kind, setKind] = useState<GroupKind>('social')
-  const [defaultCurrency, setDefaultCurrency] = useState('USD')
+  const [defaultCurrency, setDefaultCurrency] = useState(userCurrency)
   const [notes, setNotes] = useState('')
+
+  const { data: supportedCurrencies } = useQuery({
+    queryKey: ['currencies'],
+    queryFn: currenciesApi.list,
+    staleTime: Infinity,
+  })
 
   const { data: list, isLoading } = useQuery({
     queryKey: ['groups', { includeArchived }],
@@ -92,7 +101,7 @@ export default function GroupsPage() {
     setEditing(null)
     setName('')
     setKind('social')
-    setDefaultCurrency('USD')
+    setDefaultCurrency(userCurrency)
     setNotes('')
     setDialogOpen(true)
   }
@@ -252,11 +261,15 @@ export default function GroupsPage() {
             </div>
             <div className="space-y-2">
               <Label>{t('splitGroups.defaultCurrency')}</Label>
-              <Input
+              <select
+                className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background h-9 focus:outline-none focus-visible:ring-ring/30 focus-visible:ring-[2px]"
                 value={defaultCurrency}
-                onChange={(e) => setDefaultCurrency(e.target.value.toUpperCase())}
-                maxLength={3}
-              />
+                onChange={(e) => setDefaultCurrency(e.target.value)}
+              >
+                {(supportedCurrencies ?? [{ code: defaultCurrency, symbol: defaultCurrency, name: defaultCurrency, flag: '' }]).map((c) => (
+                  <option key={c.code} value={c.code}>{c.flag} {c.name}</option>
+                ))}
+              </select>
             </div>
             <div className="space-y-2">
               <Label>{t('splitGroups.notes')}</Label>

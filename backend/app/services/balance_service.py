@@ -78,21 +78,37 @@ async def compute_balances(
             # Cross-member settlements (neither side is self) don't affect
             # the owner's balance ledger and are ignored here.
 
+    # FX-convert each line to the group's default currency so the
+    # frontend can roll cross-currency lines up into a single KPI
+    # without doing FX itself. Lines stay in their native currency too.
+    from app.services.fx_rate_service import convert as _fx_convert
+
+    default_currency = group.default_currency
+
     lines = []
     for member_id, by_currency in totals.items():
         for currency, amount in by_currency.items():
             if amount == 0:
                 continue
+            if currency == default_currency:
+                amount_in_default = amount
+            else:
+                converted, _ = await _fx_convert(
+                    session, amount, currency, default_currency
+                )
+                amount_in_default = converted
             lines.append(
                 {
                     "member_id": member_id,
                     "currency": currency,
                     "amount": amount,
+                    "amount_in_default_currency": amount_in_default,
                 }
             )
 
     return {
         "group_id": group_id,
         "self_member_id": self_member.id if self_member else None,
+        "default_currency": default_currency,
         "lines": lines,
     }

@@ -478,6 +478,8 @@ export default function TransactionsPage() {
         onUncategorizedChange={(v) => { setFilterUncategorized(v); setPage(1) }}
         filterPayee={filterPayee}
         onPayeeChange={(v) => { setFilterPayee(v); setPage(1) }}
+        filterGroupId={filterGroupId}
+        onGroupIdChange={(v) => { setFilterGroupId(v); setPage(1) }}
         filterFrom={filterFrom}
         filterTo={filterTo}
         onDateRangeChange={(from, to) => { setFilterFrom(from); setFilterTo(to); setPage(1) }}
@@ -497,6 +499,7 @@ export default function TransactionsPage() {
         accounts={accountsList ?? []}
         categories={categoriesList ?? []}
         payees={payeesList ?? []}
+        groups={allGroups ?? []}
       />
       {filterGroupId && (
         <div className="mb-4 flex flex-wrap items-center gap-1.5">
@@ -584,13 +587,18 @@ export default function TransactionsPage() {
                   }}
                 >
                   <TableCell className="py-2.5 pl-4 pr-0 w-[40px]">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(tx.id)}
-                      onChange={() => toggleSelect(tx.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
-                    />
+                    {/* Bulk operations are scoped to user.id so they
+                        silently skip shared rows — hide the checkbox
+                        on those to avoid the dead-end UX. */}
+                    {!tx.is_shared && (
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(tx.id)}
+                        onChange={() => toggleSelect(tx.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                      />
+                    )}
                   </TableCell>
                   <TableCell className="py-2.5 pl-2 max-w-0">
                     <div className="flex items-center gap-2 md:gap-3">
@@ -598,14 +606,19 @@ export default function TransactionsPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-semibold text-foreground truncate">{tx.description}</p>
-                          {tx.is_shared && (
+                          {tx.group_id && (
                             <span
                               className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700 bg-violet-50 border border-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-900 px-1.5 py-0.5 rounded-full"
                               title={t('splitGroups.sharedRowTooltip')}
                             >
-                              {t('splitGroups.sharedRowBadge', {
-                                group: tx.group_id ? groupNameById.get(tx.group_id) ?? '' : '',
-                              })}
+                              {tx.is_shared && tx.parent_owner_name
+                                ? t('splitGroups.sharedRowBadgeAuthor', {
+                                    author: tx.parent_owner_name,
+                                    group: groupNameById.get(tx.group_id) ?? '',
+                                  })
+                                : t('splitGroups.ownerRowBadge', {
+                                    group: groupNameById.get(tx.group_id) ?? '',
+                                  })}
                             </span>
                           )}
                           {!!tx.transfer_pair_id && (

@@ -107,6 +107,68 @@ async def _create_payment_transaction(
     )
     session.add(tx)
     await session.flush()
+    # Stamp primary-currency amount so dashboard / report aggregations
+    # that prefer amount_primary include this row.
+    from app.services.fx_rate_service import stamp_primary_amount
+
+    await stamp_primary_amount(session, user_id, tx)
+    return tx
+
+
+async def _pick_default_account_for_user(
+    session: AsyncSession, user_id: uuid.UUID
+) -> Optional[Account]:
+    """Return the user's first non-archived checking/savings account.
+    Used as the auto-target for receiver-side settlement credits."""
+    result = await session.execute(
+        select(Account)
+        .outerjoin(BankConnection)
+        .where(
+            or_(Account.user_id == user_id, BankConnection.user_id == user_id),
+            Account.is_closed.is_(False),
+            Account.type.in_(("checking", "savings")),
+        )
+        .order_by(Account.name)
+    )
+    return result.scalars().first()
+
+
+async def _create_receiver_credit(
+    session: AsyncSession,
+    receiver_user_id: uuid.UUID,
+    amount,
+    currency: str,
+    when,
+    description: str,
+) -> Optional[Transaction]:
+    """Mirror a settlement credit on the receiver's side.
+
+    Picks the receiver's first checking/savings account. Returns None
+    silently when the receiver has no suitable account — they can do
+    it manually or the next time they reconcile from their bank sync.
+    """
+    account = await _pick_default_account_for_user(session, receiver_user_id)
+    if account is None:
+        return None
+    tx = Transaction(
+        id=uuid.uuid4(),
+        user_id=receiver_user_id,
+        account_id=account.id,
+        description=description,
+        amount=amount,
+        currency=currency,
+        date=when,
+        type="credit",
+        # Settlement credits ARE counted in P/L (income), unlike the
+        # payer's debit which is excluded. See counts_as_pnl().
+        source="settlement",
+        created_at=datetime.now(timezone.utc),
+    )
+    session.add(tx)
+    await session.flush()
+    from app.services.fx_rate_service import stamp_primary_amount
+
+    await stamp_primary_amount(session, receiver_user_id, tx)
     return tx
 
 
@@ -184,6 +246,29 @@ async def create_settlement(
     account_id = payload.pop("account_id", None)
     description = payload.pop("description", None)
 
+    # Resolve member metadata once — we need names for descriptions
+    # and the to_member's linked_user_id for the receiver-side credit.
+    members_q = await session.execute(
+        select(
+            GroupMember.id,
+            GroupMember.name,
+            GroupMember.linked_user_id,
+            GroupMember.is_self,
+        ).where(GroupMember.id.in_([data.from_member_id, data.to_member_id]))
+    )
+    member_meta = {row.id: row for row in members_q.all()}
+    from_name = member_meta[data.from_member_id].name if data.from_member_id in member_meta else "—"
+    to_meta = member_meta.get(data.to_member_id)
+    to_name = to_meta.name if to_meta else "—"
+    # Resolve the receiver's Securo user id. linked_user_id wins; fall
+    # back to group.user_id when the receiver is the owner's
+    # self-member (owners often don't bother linking themselves).
+    receiver_user_id = None
+    if to_meta is not None:
+        receiver_user_id = to_meta.linked_user_id
+        if receiver_user_id is None and to_meta.is_self:
+            receiver_user_id = group.user_id
+
     # Optional integration with the real account ledger: create a debit
     # transaction on the payer's account and link it via transaction_id.
     if account_id is not None:
@@ -192,11 +277,6 @@ async def create_settlement(
                 "Pass either account_id (to create a transaction) or "
                 "transaction_id (to link an existing one), not both"
             )
-        # Look up the to_member's name for the auto-description.
-        to_name_result = await session.execute(
-            select(GroupMember.name).where(GroupMember.id == data.to_member_id)
-        )
-        to_name = to_name_result.scalar_one_or_none() or "—"
         auto_desc = description or f"Acerto · {group.name} · {to_name}"
         tx = await _create_payment_transaction(
             session,
@@ -208,6 +288,24 @@ async def create_settlement(
             auto_desc,
         )
         payload["transaction_id"] = tx.id
+
+    # Receiver-side mirror credit: when the receiver maps to a Securo
+    # user and has a checking/savings account, record the cash-in side
+    # so their books reflect the actual money received.
+    receiver_tx_id = None
+    if receiver_user_id is not None:
+        receiver_desc = description or f"Acerto · {group.name} · {from_name}"
+        receiver_tx = await _create_receiver_credit(
+            session,
+            receiver_user_id,
+            data.amount,
+            data.currency,
+            data.date,
+            receiver_desc,
+        )
+        if receiver_tx is not None:
+            receiver_tx_id = receiver_tx.id
+    payload["receiver_transaction_id"] = receiver_tx_id
 
     settlement = GroupSettlement(group_id=group_id, **payload)
     session.add(settlement)

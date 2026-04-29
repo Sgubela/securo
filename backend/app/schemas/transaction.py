@@ -87,6 +87,10 @@ class TransactionRead(TransactionBase):
     is_shared: bool = False
     viewer_share: Optional[Decimal] = None
     group_id: Optional[uuid.UUID] = None
+    # Display name of the parent's owner — derived from the group's
+    # is_self member at request time. Helps the UI show who paid
+    # instead of a generic "shared" badge.
+    parent_owner_name: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

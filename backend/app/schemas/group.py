@@ -75,9 +75,13 @@ class GroupBalanceLine(BaseModel):
     currency: str
     # Positive = member owes the group owner. Negative = owner owes member.
     amount: Decimal
+    # Same value FX-converted to the group's default currency, so the
+    # frontend can roll up cross-currency lines into a single KPI.
+    amount_in_default_currency: Decimal
 
 
 class GroupBalances(BaseModel):
     group_id: uuid.UUID
     self_member_id: Optional[uuid.UUID] = None
+    default_currency: str
     lines: list[GroupBalanceLine] = []

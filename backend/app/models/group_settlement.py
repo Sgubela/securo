@@ -38,6 +38,14 @@ class GroupSettlement(Base):
         ForeignKey("transactions.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Receiver-side mirror: when the to_member is a linked Securo user
+    # with at least one checking/savings account, the settlement also
+    # creates a credit on their account. This column points to it.
+    receiver_transaction_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("transactions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     notes: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
@@ -46,4 +54,7 @@ class GroupSettlement(Base):
     group: Mapped["Group"] = relationship(back_populates="settlements")
     from_member: Mapped["GroupMember"] = relationship(foreign_keys=[from_member_id])
     to_member: Mapped["GroupMember"] = relationship(foreign_keys=[to_member_id])
-    transaction: Mapped[Optional["Transaction"]] = relationship()
+    transaction: Mapped[Optional["Transaction"]] = relationship(foreign_keys=[transaction_id])
+    receiver_transaction: Mapped[Optional["Transaction"]] = relationship(
+        foreign_keys=[receiver_transaction_id]
+    )

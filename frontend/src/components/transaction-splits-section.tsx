@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Users } from 'lucide-react'
 
 import { groups as groupsApi } from '@/lib/api'
+import { formatCurrency } from '@/lib/format'
 import type { Group, ShareType, TransactionSplitsInput } from '@/types'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -47,11 +48,13 @@ export function TransactionSplitsSection({
   currency,
   value,
   onChange,
+  onValidityChange,
 }: {
   amount: number
   currency: string
   value: TransactionSplitsInput | null
   onChange: (next: TransactionSplitsInput | null) => void
+  onValidityChange?: (valid: boolean) => void
 }) {
   const { t } = useTranslation()
   const [enabled, setEnabled] = useState(value !== null)
@@ -149,6 +152,27 @@ export function TransactionSplitsSection({
     return selected.reduce((sum, r) => sum + (parseFloat(r.percent) || 0), 0)
   }, [enabled, shareType, rows, amount])
 
+  // True when the splits payload is acceptable for the backend. Equal mode
+  // always materializes correctly; exact must sum to the parent amount;
+  // percent must sum to exactly 100. Reported up so the parent dialog can
+  // gate its save button instead of relying on a 400 round-trip.
+  const isValid = useMemo(() => {
+    if (!enabled) return true
+    const selected = rows.filter((r) => r.selected)
+    if (selected.length === 0) return false
+    if (shareType === 'equal') return true
+    if (shareType === 'exact') {
+      const sum = selected.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0)
+      return Math.abs(sum - Math.abs(amount)) < 0.005
+    }
+    const pctSum = selected.reduce((s, r) => s + (parseFloat(r.percent) || 0), 0)
+    return Math.abs(pctSum - 100) < 0.005
+  }, [enabled, shareType, rows, amount])
+
+  useEffect(() => {
+    onValidityChange?.(isValid)
+  }, [isValid, onValidityChange])
+
   const updateRow = (memberId: string, patch: Partial<RowState>) => {
     setRows((prev) => prev.map((r) => (r.member_id === memberId ? { ...r, ...patch } : r)))
   }
@@ -208,51 +232,69 @@ export function TransactionSplitsSection({
                   {group.members.length === 0 ? (
                     <p className="text-xs text-muted-foreground">{t('splitGroups.splitNoMembers')}</p>
                   ) : (
-                    group.members.map((m) => {
-                      const row = rows.find((r) => r.member_id === m.id)
-                      if (!row) return null
-                      return (
-                        <div key={m.id} className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={row.selected}
-                            onChange={(e) =>
-                              updateRow(m.id, { selected: e.target.checked })
-                            }
-                            className="h-4 w-4 rounded border-border accent-primary"
-                          />
-                          <span className="text-sm flex-1 min-w-0 truncate">
-                            {m.name}
-                            {m.is_self && (
-                              <span className="ml-1.5 text-xs text-primary">
-                                ({t('splitGroups.you')})
+                    (() => {
+                      const selectedCount = rows.filter((r) => r.selected).length
+                      const absAmount = Math.abs(amount)
+                      return group.members.map((m) => {
+                        const row = rows.find((r) => r.member_id === m.id)
+                        if (!row) return null
+                        const computed: number | null = !row.selected
+                          ? null
+                          : shareType === 'equal'
+                            ? selectedCount > 0
+                              ? absAmount / selectedCount
+                              : null
+                            : shareType === 'percent'
+                              ? (parseFloat(row.percent) || 0) * absAmount / 100
+                              : null
+                        return (
+                          <div key={m.id} className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={row.selected}
+                              onChange={(e) =>
+                                updateRow(m.id, { selected: e.target.checked })
+                              }
+                              className="h-4 w-4 rounded border-border accent-primary"
+                            />
+                            <span className="text-sm flex-1 min-w-0 truncate">
+                              {m.name}
+                              {m.is_self && (
+                                <span className="ml-1.5 text-xs text-primary">
+                                  ({t('splitGroups.you')})
+                                </span>
+                              )}
+                            </span>
+                            {computed !== null && (
+                              <span className="text-xs text-muted-foreground tabular-nums">
+                                {formatCurrency(computed, currency)}
                               </span>
                             )}
-                          </span>
-                          {shareType === 'exact' && row.selected && (
-                            <Input
-                              type="number"
-                              step="0.01"
-                              className="w-24 h-8 text-sm"
-                              value={row.amount}
-                              onChange={(e) => updateRow(m.id, { amount: e.target.value })}
-                            />
-                          )}
-                          {shareType === 'percent' && row.selected && (
-                            <div className="flex items-center gap-1">
+                            {shareType === 'exact' && row.selected && (
                               <Input
                                 type="number"
                                 step="0.01"
-                                className="w-20 h-8 text-sm"
-                                value={row.percent}
-                                onChange={(e) => updateRow(m.id, { percent: e.target.value })}
+                                className="w-24 h-8 text-sm"
+                                value={row.amount}
+                                onChange={(e) => updateRow(m.id, { amount: e.target.value })}
                               />
-                              <span className="text-xs text-muted-foreground">%</span>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })
+                            )}
+                            {shareType === 'percent' && row.selected && (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  className="w-20 h-8 text-sm"
+                                  value={row.percent}
+                                  onChange={(e) => updateRow(m.id, { percent: e.target.value })}
+                                />
+                                <span className="text-xs text-muted-foreground">%</span>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })
+                    })()
                   )}
                 </div>
               )}

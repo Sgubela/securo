@@ -757,6 +757,17 @@ export default function TransactionsPage() {
                         })}
                       </p>
                     )}
+                    {/* Owner of a split: show your-share secondary line.
+                        Skip when the owner is the sole member (share ==
+                        amount) — would just duplicate the figure. */}
+                    {!tx.is_shared && tx.viewer_share != null
+                      && Math.abs(Number(tx.viewer_share)) !== Math.abs(Number(tx.amount)) && (
+                      <p className="text-[10px] text-muted-foreground tabular-nums">
+                        {t('splitGroups.ownerRowYourShare', {
+                          share: formatCurrency(Math.abs(Number(tx.viewer_share)), tx.currency, locale),
+                        })}
+                      </p>
+                    )}
                     {tx.amount_primary != null && tx.currency !== userCurrency && (
                       <div className="flex items-center justify-end gap-1">
                         {tx.fx_fallback && (

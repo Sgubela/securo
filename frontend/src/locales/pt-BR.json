@@ -865,6 +865,7 @@
     "ownerRowBadge": "{{group}}",
     "sharedRowTooltip": "Sua parcela em uma divisão de grupo. Toque para abrir o grupo.",
     "sharedRowParent": "de {{total}} no total",
+    "ownerRowYourShare": "sua parte: {{share}}",
     "sharedShortBadge": "Compartilhada",
     "sharedShortBadgeAuthor": "Pago por {{author}}",
     "kpiTotalMoved": "Total movimentado",

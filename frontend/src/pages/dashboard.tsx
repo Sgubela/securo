@@ -294,6 +294,10 @@ export default function DashboardPage() {
     attachmentCount: number
     isShared: boolean
     parentTotal: number | null
+    // Owner-side: this user's share of a split they own. Null when
+    // they're not in the split, or when share == amount (would be a
+    // redundant secondary line).
+    ownerShare: number | null
     groupId: string | null
     parentOwnerName: string | null
     groupName: string | null
@@ -307,6 +311,15 @@ export default function DashboardPage() {
       const displayAmount =
         isShared && tx.viewer_share != null ? Number(tx.viewer_share) : Number(tx.amount)
       const groupId = tx.group_id ?? null
+      // Owner-side share: backend populates viewer_share for owners
+      // who participate in their own split. Suppress when it equals
+      // the parent amount (sole-member case = no useful info).
+      const ownerShareRaw =
+        !isShared && tx.viewer_share != null ? Number(tx.viewer_share) : null
+      const ownerShare =
+        ownerShareRaw != null && Math.abs(ownerShareRaw) !== Math.abs(Number(tx.amount))
+          ? ownerShareRaw
+          : null
       rows.push({
         key: tx.id,
         description: tx.description,
@@ -322,6 +335,7 @@ export default function DashboardPage() {
         attachmentCount: tx.attachment_count ?? 0,
         isShared,
         parentTotal: isShared ? Number(tx.amount) : null,
+        ownerShare,
         groupId,
         parentOwnerName: isShared ? tx.parent_owner_name ?? null : null,
         groupName: groupId ? groupNameById.get(groupId) ?? null : null,
@@ -343,6 +357,7 @@ export default function DashboardPage() {
         attachmentCount: 0,
         isShared: false,
         parentTotal: null,
+        ownerShare: null,
         groupId: null,
         parentOwnerName: null,
         groupName: null,
@@ -968,6 +983,13 @@ export default function DashboardPage() {
                           <span className="block text-[10px] text-muted-foreground tabular-nums">
                             {t('splitGroups.sharedRowParent', {
                               total: formatCurrency(Math.abs(row.parentTotal), row.currency, locale),
+                            })}
+                          </span>
+                        )}
+                        {!row.isShared && row.ownerShare != null && (
+                          <span className="block text-[10px] text-muted-foreground tabular-nums">
+                            {t('splitGroups.ownerRowYourShare', {
+                              share: formatCurrency(Math.abs(row.ownerShare), row.currency, locale),
                             })}
                           </span>
                         )}

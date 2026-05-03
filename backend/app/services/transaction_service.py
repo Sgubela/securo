@@ -364,22 +364,32 @@ async def _tag_shared_view(
             tx.parent_owner_name = None
         return
 
-    # Friendly name for the parent's owner, per group: the `is_self`
-    # member represents the group owner / payer. Cached once per call.
+    # Per-group lookups: the `is_self` member represents the parent
+    # owner / payer. We need this for ALL groups touching this batch,
+    # not just the viewer-linked ones — owners need their own
+    # self-member id to compute their share. Cached once per call.
+    all_group_ids = set(member_to_group.values()) | set(split_member_to_group.values())
     self_member_rows = await session.execute(
-        select(GroupMember.group_id, GroupMember.name).where(
-            GroupMember.group_id.in_(set(member_to_group.values())),
+        select(GroupMember.id, GroupMember.group_id, GroupMember.name).where(
+            GroupMember.group_id.in_(all_group_ids),
             GroupMember.is_self.is_(True),
         )
     )
-    owner_name_by_group = {row.group_id: row.name for row in self_member_rows}
+    self_member_id_by_group: dict[uuid.UUID, uuid.UUID] = {}
+    owner_name_by_group: dict[uuid.UUID, str] = {}
+    for row in self_member_rows:
+        self_member_id_by_group[row.group_id] = row.id
+        owner_name_by_group[row.group_id] = row.name
 
     for tx in transactions:
         if tx.user_id == user_id:
             # Owner of the parent — not "shared" but still tag the
             # group_id so the UI can show a group badge for owners.
+            # Also populate viewer_share with the owner's *own* split
+            # share when they participate (is_self member appears in the
+            # splits): the UI surfaces "your share: $X" alongside the
+            # full amount that hit the account.
             tx.is_shared = False
-            tx.viewer_share = None
             tx.parent_owner_name = None
             owner_group_id: Optional[uuid.UUID] = None
             for s in tx.splits or []:
@@ -388,6 +398,20 @@ async def _tag_shared_view(
                     owner_group_id = gid
                     break
             tx.group_id = owner_group_id
+            self_mid = (
+                self_member_id_by_group.get(owner_group_id)
+                if owner_group_id is not None
+                else None
+            )
+            owner_split = (
+                next(
+                    (s for s in tx.splits or [] if s.group_member_id == self_mid),
+                    None,
+                )
+                if self_mid is not None
+                else None
+            )
+            tx.viewer_share = owner_split.share_amount if owner_split else None
             continue
         # The viewer doesn't own this; find their split share.
         match = next(

@@ -152,7 +152,52 @@ async def test_owner_does_not_see_shared_duplicate(client, auth_headers, test_us
     dinner_rows = [r for r in rows if r["description"] == "Dinner"]
     assert len(dinner_rows) == 1
     assert dinner_rows[0]["is_shared"] is False
-    assert dinner_rows[0]["viewer_share"] is None
+    # viewer_share is also populated for the owner (= their own split
+    # share), so the UI can render "your share" alongside the full
+    # parent amount. is_shared stays False — no duplicate row.
+    assert float(dinner_rows[0]["viewer_share"]) == 30.0
+
+
+@pytest.mark.asyncio
+async def test_owner_viewer_share_null_when_owner_not_in_splits(
+    client, auth_headers, test_user
+):
+    """If the owner paid for others without including themselves in the
+    split (e.g. covering a friend's expense), viewer_share stays None
+    so the UI doesn't render a misleading 'your share: $0' line."""
+    friend_email = "owner-not-in-splits@example.com"
+    await _register(client, friend_email, "friendpassword12")
+
+    account = await _create_account(client, auth_headers)
+    _, _me, friend = await _create_group_with_self_and_friend(
+        client, auth_headers, friend_email
+    )
+
+    await client.post(
+        "/api/transactions",
+        headers=auth_headers,
+        json={
+            "account_id": account["id"],
+            "description": "Gift",
+            "amount": 40,
+            "date": "2026-04-28",
+            "type": "debit",
+            "currency": "USD",
+            # Owner pays but only the friend is in the split (owner is
+            # covering the friend's whole share — common gift / loan case).
+            "splits": {
+                "share_type": "equal",
+                "splits": [{"group_member_id": friend["id"]}],
+            },
+        },
+    )
+
+    list_resp = await client.get("/api/transactions", headers=auth_headers)
+    rows = list_resp.json()["items"]
+    gift_rows = [r for r in rows if r["description"] == "Gift"]
+    assert len(gift_rows) == 1
+    assert gift_rows[0]["is_shared"] is False
+    assert gift_rows[0]["viewer_share"] is None
 
 
 @pytest.mark.asyncio

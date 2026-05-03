@@ -865,6 +865,7 @@
     "ownerRowBadge": "{{group}}",
     "sharedRowTooltip": "Your share in a group split. Tap to open the group.",
     "sharedRowParent": "of {{total}} total",
+    "ownerRowYourShare": "your share: {{share}}",
     "sharedShortBadge": "Shared",
     "sharedShortBadgeAuthor": "Paid by {{author}}",
     "kpiTotalMoved": "Total moved",

@@ -615,10 +615,22 @@ async def get_account_summary(
         # txs so an in-progress cycle's bar/total doesn't double-count past-
         # bill txs whose date falls in the window (see get_transactions).
         if unbilled_only:
+            # Forward-pointing override catch (issue #162): mirror
+            # get_transactions so the in-progress cycle's totals include
+            # txs whose manual override points past the cycle window.
+            # Without this the tx list and totals diverge — the tx shows
+            # in the list (after the catch in get_transactions) but its
+            # amount drops out of the strip pill / summary card.
+            future_override = _and(
+                Transaction.effective_bill_date.is_not(None),
+                Transaction.effective_bill_date > date_to,
+            )
             return query.where(
                 Transaction.bill_id.is_(None),
-                bucket_date >= date_from,
-                bucket_date <= date_to,
+                or_(
+                    _and(bucket_date >= date_from, bucket_date <= date_to),
+                    future_override,
+                ),
             )
         return query.where(bucket_date >= date_from, bucket_date <= date_to)
 

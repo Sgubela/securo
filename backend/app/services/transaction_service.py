@@ -249,10 +249,32 @@ async def get_transactions(
         # /transactions list and other generic callers leave it False.
         if unbilled_only:
             base_query = base_query.where(Transaction.bill_id.is_(None))
-        if from_date:
-            base_query = base_query.where(filter_date_col >= from_date)
-        if to_date:
-            base_query = base_query.where(filter_date_col <= to_date)
+        # Forward-pointing override catch (issue #162): a manual override
+        # pointing past this cycle's right edge (e.g., user wants the tx
+        # on a future bill that doesn't exist yet) won't fit any closed
+        # bill window either — past bills are by definition behind us.
+        # Honor the user's explicit intent by including those orphans in
+        # the in-progress cycle so the tx stays visible until a real bill
+        # eventually anchors it. Limited to `unbilled_only` so the global
+        # /transactions list isn't reshaped by the same rule.
+        if unbilled_only and to_date is not None:
+            from sqlalchemy import and_ as _and
+            window_clauses = []
+            if from_date:
+                window_clauses.append(filter_date_col >= from_date)
+            window_clauses.append(filter_date_col <= to_date)
+            base_query = base_query.where(or_(
+                _and(*window_clauses),
+                _and(
+                    Transaction.effective_bill_date.is_not(None),
+                    Transaction.effective_bill_date > to_date,
+                ),
+            ))
+        else:
+            if from_date:
+                base_query = base_query.where(filter_date_col >= from_date)
+            if to_date:
+                base_query = base_query.where(filter_date_col <= to_date)
     if search:
         term = f"%{search}%"
         base_query = base_query.where(

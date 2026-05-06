@@ -1650,3 +1650,47 @@ class TestEffectiveBillDateFiltersList:
             bill_id=may.id,
         )
         assert summary["monthly_expenses"] == 105.0
+
+    @pytest.mark.asyncio
+    async def test_override_past_in_progress_window_lands_in_in_progress(
+        self, session, test_user, cc_account
+    ):
+        """User sets `effective_bill_date` to a date past the in-progress
+        cycle's right edge — typically because they want the tx on a future
+        bill that doesn't exist yet. Closed bill windows can't host such
+        forward-pointing overrides (they're by definition past), so the
+        in-progress cycle catches them as the only forward-looking bucket.
+        Otherwise the tx vanishes (issue #162)."""
+        from app.services.transaction_service import get_transactions
+        from app.services.account_service import get_account_summary
+
+        # Tx with override well past the in-progress cycle's right edge
+        tx = await _make_tx(
+            session, test_user.id, cc_account.id,
+            date(2026, 3, 22), Decimal("59.90"),
+            effective_date=date(2026, 6, 11),
+            source="sync",
+        )
+        tx.status = "posted"
+        tx.effective_bill_date = date(2026, 6, 11)
+        await session.commit()
+
+        # In-progress cycle window for close=11/due=16 around early May:
+        # cycle = [Apr 12, May 11]. Override 6/11 lies past 5/11.
+        in_prog_txs, _ = await get_transactions(
+            session, test_user.id, account_id=cc_account.id,
+            from_date=date(2026, 4, 12), to_date=date(2026, 5, 11),
+            unbilled_only=True,
+            accounting_mode="cash",
+        )
+        assert any(t.id == tx.id for t in in_prog_txs), (
+            "tx with override past the in-progress cycle must be visible "
+            "in the in-progress view as the catch-all bucket"
+        )
+
+        summary = await get_account_summary(
+            session, cc_account.id, test_user.id,
+            date_from=date(2026, 4, 12), date_to=date(2026, 5, 11),
+            unbilled_only=True,
+        )
+        assert summary["monthly_expenses"] == 59.90

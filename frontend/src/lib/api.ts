@@ -631,7 +631,7 @@ export const rules = {
     const { data } = await api.get('/rules/packs')
     return data
   },
-  installPack: async (packCode: string): Promise<{ installed: number }> => {
+  installPack: async (packCode: string): Promise<{ installed: number; unresolved: number }> => {
     const { data } = await api.post(`/rules/packs/${packCode}/install`)
     return data
   },

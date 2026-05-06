@@ -361,7 +361,11 @@ function RulePacksDialog({ open, onClose }: { open: boolean; onClose: () => void
       queryClient.invalidateQueries({ queryKey: ['rules'] })
       queryClient.invalidateQueries({ queryKey: ['rule-packs'] })
       if (data.installed === 0) {
-        toast.info(t('rules.packAlreadyInstalled'))
+        if (data.unresolved > 0) {
+          toast.error(t('rules.packMissingCategories'))
+        } else {
+          toast.info(t('rules.packAlreadyInstalled'))
+        }
       } else {
         toast.success(t('rules.packInstalled', { count: data.installed }))
       }

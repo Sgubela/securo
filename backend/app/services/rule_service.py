@@ -481,23 +481,36 @@ def _resolve_categories_by_internal_key(
 
 def _build_rules_from_templates(
     templates: list[dict], key_to_category_id: dict[str, str]
-) -> list[dict]:
-    """Convert rule templates (with internal keys) to rules with resolved category UUIDs."""
-    resolved = []
+) -> tuple[list[dict], int]:
+    """Convert rule templates (with internal keys) to rules with resolved category UUIDs.
+
+    Returns (resolved_rules, unresolved_count) — unresolved is how many
+    templates were dropped because their `set_category` target category
+    doesn't exist for this user. Callers use it to distinguish "pack
+    already installed" (every rule skipped because the name already
+    exists) from "pack can't be installed" (rules skipped because the
+    user has no matching category).
+    """
+    resolved: list[dict] = []
+    unresolved = 0
     for rule_data in templates:
         actions = []
+        dropped_for_missing_category = False
         for action in rule_data["actions"]:
             if action["op"] == "set_category":
                 cat_id = key_to_category_id.get(action["value"])
                 if not cat_id:
+                    dropped_for_missing_category = True
                     continue
                 actions.append({"op": "set_category", "value": cat_id})
             else:
                 actions.append(action)
         if not actions:
+            if dropped_for_missing_category:
+                unresolved += 1
             continue
         resolved.append({**rule_data, "actions": actions})
-    return resolved
+    return resolved, unresolved
 
 
 async def _get_existing_rule_names(session: AsyncSession, user_id: uuid.UUID) -> set[str]:
@@ -519,7 +532,7 @@ async def create_default_rules(session: AsyncSession, user_id: uuid.UUID, lang: 
     categories = {cat.name: str(cat.id) for cat in result.scalars().all()}
     key_to_id = _resolve_categories_by_internal_key(categories)
 
-    resolved = _build_rules_from_templates(UNIVERSAL_RULES, key_to_id)
+    resolved, _unresolved = _build_rules_from_templates(UNIVERSAL_RULES, key_to_id)
 
     rules = []
     for rule_data in resolved:
@@ -539,7 +552,19 @@ async def create_default_rules(session: AsyncSession, user_id: uuid.UUID, lang: 
     return rules
 
 
-async def install_rule_pack(session: AsyncSession, user_id: uuid.UUID, pack_code: str, lang: str = "pt-BR") -> list[Rule]:
+class RulePackInstallResult:
+    """Outcome of installing a country-specific rule pack."""
+
+    __slots__ = ("rules", "unresolved")
+
+    def __init__(self, rules: list[Rule], unresolved: int) -> None:
+        self.rules = rules
+        self.unresolved = unresolved
+
+
+async def install_rule_pack(
+    session: AsyncSession, user_id: uuid.UUID, pack_code: str, lang: str = "pt-BR"
+) -> RulePackInstallResult:
     """Install a country-specific rule pack for a user. Skips rules whose name already exists.
 
     `lang` is accepted for backwards compatibility but no longer affects
@@ -548,17 +573,17 @@ async def install_rule_pack(session: AsyncSession, user_id: uuid.UUID, pack_code
     """
     pack = RULE_PACKS.get(pack_code)
     if not pack:
-        return []
+        return RulePackInstallResult([], 0)
 
     result = await session.execute(select(Category).where(Category.user_id == user_id))
     categories = {cat.name: str(cat.id) for cat in result.scalars().all()}
     key_to_id = _resolve_categories_by_internal_key(categories)
 
-    resolved = _build_rules_from_templates(pack["rules"], key_to_id)
+    resolved, unresolved = _build_rules_from_templates(pack["rules"], key_to_id)
 
     existing_names = await _get_existing_rule_names(session, user_id)
 
-    rules = []
+    rules: list[Rule] = []
     for rule_data in resolved:
         if rule_data["name"] in existing_names:
             continue
@@ -575,7 +600,7 @@ async def install_rule_pack(session: AsyncSession, user_id: uuid.UUID, pack_code
         rules.append(rule)
 
     await session.commit()
-    return rules
+    return RulePackInstallResult(rules, unresolved)
 
 
 async def get_installed_packs(session: AsyncSession, user_id: uuid.UUID) -> dict[str, bool]:

@@ -512,6 +512,7 @@
     "packInstalled": "{{count}} rules installed",
     "installed": "Installed",
     "packAlreadyInstalled": "Pack already installed",
+    "packMissingCategories": "This pack needs default categories you don't have. Add the matching categories first, then try again.",
     "duplicateName": "A rule with this name already exists",
     "sectionTitle": "Categorization Rules",
     "reapplyAll": "Reapply all",

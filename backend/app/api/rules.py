@@ -95,8 +95,8 @@ async def install_rule_pack(
     if pack_code not in rule_service.RULE_PACKS:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule pack not found")
     lang = (user.preferences or {}).get("language", "pt-BR")
-    rules = await rule_service.install_rule_pack(session, user.id, pack_code, lang)
-    return {"installed": len(rules)}
+    result = await rule_service.install_rule_pack(session, user.id, pack_code, lang)
+    return {"installed": len(result.rules), "unresolved": result.unresolved}
 
 
 @router.post("/apply-all", response_model=dict)

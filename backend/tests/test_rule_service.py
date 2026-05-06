@@ -477,10 +477,11 @@ async def test_create_default_rules(session: AsyncSession, test_user):
 async def test_install_rule_pack_br(session: AsyncSession, test_user):
     await create_default_categories(session, test_user.id, lang="pt-BR")
 
-    rules = await install_rule_pack(session, test_user.id, "BR", lang="pt-BR")
-    assert len(rules) > 0
+    result = await install_rule_pack(session, test_user.id, "BR", lang="pt-BR")
+    assert len(result.rules) > 0
+    assert result.unresolved == 0
 
-    names = {r.name for r in rules}
+    names = {r.name for r in result.rules}
     assert "iFood / Rappi" in names
 
 
@@ -491,8 +492,11 @@ async def test_install_rule_pack_skips_duplicates(session: AsyncSession, test_us
     first = await install_rule_pack(session, test_user.id, "BR", lang="pt-BR")
     second = await install_rule_pack(session, test_user.id, "BR", lang="pt-BR")
 
-    assert len(first) > 0
-    assert len(second) == 0  # all already installed
+    assert len(first.rules) > 0
+    # All rules already installed — distinct from "couldn't install" because
+    # nothing was unresolvable.
+    assert len(second.rules) == 0
+    assert second.unresolved == 0
 
 
 @pytest.mark.asyncio
@@ -503,17 +507,34 @@ async def test_install_rule_pack_works_across_languages(session: AsyncSession, t
     # still resolve the category by internal key.
     await create_default_categories(session, test_user.id, lang="en")
 
-    rules = await install_rule_pack(session, test_user.id, "BR", lang="pt-BR")
+    result = await install_rule_pack(session, test_user.id, "BR", lang="pt-BR")
 
     # Every BR rule's set_category action should have resolved to a real
     # English category UUID, so the pack installs in full.
-    assert len(rules) == len(RULE_PACKS["BR"]["rules"])
+    assert len(result.rules) == len(RULE_PACKS["BR"]["rules"])
+    assert result.unresolved == 0
+
+
+@pytest.mark.asyncio
+async def test_install_rule_pack_reports_unresolved_when_categories_missing(
+    session: AsyncSession, test_user
+):
+    # User in a degenerate state with no default categories — every pack
+    # rule's set_category target is missing, so the install can't actually
+    # write any rules. The result must surface this so the frontend can
+    # tell the user "missing categories" instead of the misleading
+    # "pack already installed" toast.
+    result = await install_rule_pack(session, test_user.id, "BR", lang="pt-BR")
+
+    assert len(result.rules) == 0
+    assert result.unresolved == len(RULE_PACKS["BR"]["rules"])
 
 
 @pytest.mark.asyncio
 async def test_install_rule_pack_unknown_returns_empty(session: AsyncSession, test_user):
     result = await install_rule_pack(session, test_user.id, "ZZ")
-    assert result == []
+    assert result.rules == []
+    assert result.unresolved == 0
 
 
 @pytest.mark.asyncio

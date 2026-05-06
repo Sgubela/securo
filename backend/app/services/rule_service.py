@@ -453,21 +453,42 @@ CURRENCY_TO_PACK = {
 }
 
 
-def _resolve_category_name(internal_key: str, lang: str) -> str:
-    """Resolve internal category key to the localized name."""
-    data = DEFAULT_CATEGORIES_I18N.get(internal_key, {})
-    return data.get(lang, data.get("en", internal_key))
+def _resolve_categories_by_internal_key(
+    categories_by_name: dict[str, str],
+) -> dict[str, str]:
+    """Map default-category internal keys (e.g. 'transport') to the user's actual
+    category UUID by matching against any language variant of the default name.
+
+    Rule templates reference categories by their internal key, but the user's
+    categories are stored under a localized name. If we resolve the key using
+    only the language passed in, an "en"-named category ("Transport") won't
+    match a "pt-BR" lookup ("Transporte"), so every rule gets silently
+    dropped. Walking all language variants makes pack install work no matter
+    which language the user's categories were created in.
+    """
+    key_to_id: dict[str, str] = {}
+    non_name_fields = {"icon", "color", "treat_as_transfer"}
+    for internal_key, data in DEFAULT_CATEGORIES_I18N.items():
+        for field, value in data.items():
+            if field in non_name_fields:
+                continue
+            cat_id = categories_by_name.get(value)
+            if cat_id:
+                key_to_id[internal_key] = cat_id
+                break
+    return key_to_id
 
 
-def _build_rules_from_templates(templates: list[dict], categories: dict[str, str], lang: str) -> list[dict]:
+def _build_rules_from_templates(
+    templates: list[dict], key_to_category_id: dict[str, str]
+) -> list[dict]:
     """Convert rule templates (with internal keys) to rules with resolved category UUIDs."""
     resolved = []
     for rule_data in templates:
         actions = []
         for action in rule_data["actions"]:
             if action["op"] == "set_category":
-                cat_name = _resolve_category_name(action["value"], lang)
-                cat_id = categories.get(cat_name)
+                cat_id = key_to_category_id.get(action["value"])
                 if not cat_id:
                     continue
                 actions.append({"op": "set_category", "value": cat_id})
@@ -488,11 +509,17 @@ async def _get_existing_rule_names(session: AsyncSession, user_id: uuid.UUID) ->
 
 
 async def create_default_rules(session: AsyncSession, user_id: uuid.UUID, lang: str = "pt-BR") -> list[Rule]:
-    """Create universal default categorization rules for a new user."""
+    """Create universal default categorization rules for a new user.
+
+    `lang` is accepted for backwards compatibility but no longer affects
+    category resolution — categories are matched by internal key across all
+    language variants.
+    """
     result = await session.execute(select(Category).where(Category.user_id == user_id))
     categories = {cat.name: str(cat.id) for cat in result.scalars().all()}
+    key_to_id = _resolve_categories_by_internal_key(categories)
 
-    resolved = _build_rules_from_templates(UNIVERSAL_RULES, categories, lang)
+    resolved = _build_rules_from_templates(UNIVERSAL_RULES, key_to_id)
 
     rules = []
     for rule_data in resolved:
@@ -513,15 +540,21 @@ async def create_default_rules(session: AsyncSession, user_id: uuid.UUID, lang: 
 
 
 async def install_rule_pack(session: AsyncSession, user_id: uuid.UUID, pack_code: str, lang: str = "pt-BR") -> list[Rule]:
-    """Install a country-specific rule pack for a user. Skips rules whose name already exists."""
+    """Install a country-specific rule pack for a user. Skips rules whose name already exists.
+
+    `lang` is accepted for backwards compatibility but no longer affects
+    category resolution — categories are matched by internal key across all
+    language variants.
+    """
     pack = RULE_PACKS.get(pack_code)
     if not pack:
         return []
 
     result = await session.execute(select(Category).where(Category.user_id == user_id))
     categories = {cat.name: str(cat.id) for cat in result.scalars().all()}
+    key_to_id = _resolve_categories_by_internal_key(categories)
 
-    resolved = _build_rules_from_templates(pack["rules"], categories, lang)
+    resolved = _build_rules_from_templates(pack["rules"], key_to_id)
 
     existing_names = await _get_existing_rule_names(session, user_id)
 

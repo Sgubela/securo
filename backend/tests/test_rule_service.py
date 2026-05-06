@@ -10,6 +10,7 @@ from app.models.transaction import Transaction
 from app.schemas.rule import RuleAction, RuleCondition, RuleCreate, RuleUpdate
 from app.services.rule_service import (
     DuplicateRuleError,
+    RULE_PACKS,
     apply_all_rules,
     apply_rules_to_transaction,
     create_default_rules,
@@ -492,6 +493,21 @@ async def test_install_rule_pack_skips_duplicates(session: AsyncSession, test_us
 
     assert len(first) > 0
     assert len(second) == 0  # all already installed
+
+
+@pytest.mark.asyncio
+async def test_install_rule_pack_works_across_languages(session: AsyncSession, test_user):
+    # Regression for #154: user registers in English, switches UI to pt-BR,
+    # then installs the BR pack. Categories ("Transport") and template
+    # language ("pt-BR" → "Transporte") would mismatch — install should
+    # still resolve the category by internal key.
+    await create_default_categories(session, test_user.id, lang="en")
+
+    rules = await install_rule_pack(session, test_user.id, "BR", lang="pt-BR")
+
+    # Every BR rule's set_category action should have resolved to a real
+    # English category UUID, so the pack installs in full.
+    assert len(rules) == len(RULE_PACKS["BR"]["rules"])
 
 
 @pytest.mark.asyncio

@@ -1610,3 +1610,43 @@ class TestEffectiveBillDateFiltersList:
             "pending sync tx with manual override in window must be "
             "visible in the target bill view"
         )
+
+    @pytest.mark.asyncio
+    async def test_summary_includes_pending_sync_with_override(
+        self, session, test_user, cc_account
+    ):
+        """get_account_summary mirrors get_transactions: a pending sync tx
+        with `effective_bill_date` in the cycle window must contribute to
+        the totals card and bar chart even when the override doesn't snap
+        to a bill's due_date (so bill_id stays null). Without this the
+        strip pill totals diverge from the tx list (issue #162)."""
+        from app.services.account_service import get_account_summary
+        from app.models.credit_card_bill import CreditCardBill
+        from datetime import datetime, timezone
+
+        may = CreditCardBill(
+            user_id=test_user.id, account_id=cc_account.id,
+            external_id="bill-may-sum", due_date=date(2026, 5, 16),
+            total_amount=Decimal("0"), currency="BRL",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        session.add(may)
+        await session.flush()
+
+        tx = await _make_tx(
+            session, test_user.id, cc_account.id,
+            date(2026, 5, 11), Decimal("105"),
+            effective_date=date(2026, 5, 10),
+            source="sync",
+        )
+        tx.status = "pending"
+        tx.effective_bill_date = date(2026, 5, 10)
+        await session.commit()
+
+        summary = await get_account_summary(
+            session, cc_account.id, test_user.id,
+            date_from=date(2026, 4, 17), date_to=date(2026, 5, 16),
+            bill_id=may.id,
+        )
+        assert summary["monthly_expenses"] == 105.0

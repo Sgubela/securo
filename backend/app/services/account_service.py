@@ -594,9 +594,17 @@ async def get_account_summary(
                 # different bill. If effective_date matches, the tx is
                 # pre-classified to this bill and we include it (the
                 # in-progress case abdalanervoso reported empty).
+                #
+                # Manual override (effective_bill_date) bypasses the
+                # exclusion entirely — the user explicitly hand-corrected
+                # the bucketing, so the totals must reflect that even if
+                # the override doesn't snap to a real bill due_date and
+                # bill_id stays null (issue #162). Mirrors the same
+                # carve-out in get_transactions.
                 _not(_and(
                     Transaction.source == "sync",
                     Transaction.status == "pending",
+                    Transaction.effective_bill_date.is_(None),
                     Transaction.effective_date != active_due_subq,
                 )),
                 bucket_date >= date_from,

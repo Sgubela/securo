@@ -1072,11 +1072,14 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      {/* Bulk Action Bar */}
+      {/* Bulk Action Bar — aligned with the main content area: clears the
+          fixed sidebar on lg+ and matches the page's max-w-7xl + p-6 wrapper
+          so the bar visually sits over the transactions list, not the
+          full viewport. */}
       <div
-        className={`fixed bottom-0 left-0 right-0 z-50 transition-transform duration-200 ease-out ${selectedIds.size > 0 ? 'translate-y-0' : 'translate-y-full'}`}
+        className={`fixed bottom-0 left-0 right-0 lg:left-60 z-50 transition-transform duration-200 ease-out ${selectedIds.size > 0 ? 'translate-y-0' : 'translate-y-full'}`}
       >
-        <div className="mx-auto max-w-6xl px-3 md:px-4 pb-4 md:pb-6">
+        <div className="mx-auto max-w-7xl px-3 md:px-6 pb-4 md:pb-6">
           <div className="flex items-stretch gap-1.5 bg-card border border-border shadow-xl rounded-2xl p-2">
             {/* Selection count */}
             <div className="flex items-center gap-2 pl-3 pr-4 text-sm font-medium text-foreground whitespace-nowrap">

@@ -1,5 +1,4 @@
 import logging
-import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -440,11 +439,9 @@ async def handle_oauth_callback(
             connection_data.credentials, acc_data.external_id, None
         )
         for txn_data in transactions_data:
-            # Providers occasionally emit the same logical transaction twice
-            # in a single fetch — typically a scheduled/pending row
-            # re-emitted as a separate posted row, or a credit-card
-            # installment that's posted on the current bill and still
-            # scheduled against the next. Fingerprint match prevents the
+            # Pending↔posted twin (and the credit-card installment variant).
+            # When the same logical operation comes back under a new external
+            # id with a different status, fingerprint match prevents the
             # second copy from landing.
             synced_dup = await _find_synced_duplicate(session, account.id, txn_data)
             if synced_dup:
@@ -553,36 +550,6 @@ def _description_similarity(a: str | None, b: str | None) -> float:
     return len(intersection) / max(len(tokens_a), len(tokens_b))
 
 
-# Trailing per-event identifiers (document number, authorization code, etc.)
-# that vary across otherwise-identical descriptions of the same logical
-# operation. Stripping them yields the stable prefix we fingerprint in
-# `_find_synced_duplicate`.
-_IDENTIFIER_SUFFIX_RE = re.compile(
-    r"[\s\-:|/.;]*\b(?:DOCTO|DOC|NSU|TID|REF|AUT|OP|OPER|TRANS|TRX|ID)[:.]?\s*\d+\b",
-    re.IGNORECASE,
-)
-_TRAILING_DIGITS_RE = re.compile(r"\s+\d{4,}\s*$")
-
-
-def _description_root(s: str | None) -> str:
-    """Stable prefix of a transaction description for duplicate detection.
-
-    Strips trailing identifiers (document/authorization/reference numbers)
-    that change between otherwise-identical descriptions, plus surrounding
-    punctuation; lowercases and collapses whitespace.
-    """
-    if not s:
-        return ""
-    text = s.strip()
-    while True:
-        new = _IDENTIFIER_SUFFIX_RE.sub("", text).rstrip(" -:|/.;")
-        if new == text:
-            break
-        text = new
-    text = _TRAILING_DIGITS_RE.sub("", text).rstrip(" -:|/.;")
-    return " ".join(text.lower().split())
-
-
 async def _fuzzy_match_manual(
     session: AsyncSession,
     account_id: uuid.UUID,
@@ -633,9 +600,8 @@ async def _find_synced_duplicate(
     two different external ids:
 
     1. The provider re-emits the operation with a new id when its state
-       changes — e.g. a scheduled transfer that posts as a separate row.
-       Same date, amount, type, and description once trailing per-event
-       identifiers are stripped.
+       changes — e.g. a scheduled/pending row replaced by a posted row.
+       Same account/date/amount/type with statuses differing.
     2. A credit-card installment that lands on the current bill but is also
        still scheduled against the next bill. Two different external ids
        and two different bills, but the same installment fingerprint
@@ -670,16 +636,12 @@ async def _find_synced_duplicate(
                 continue
             return candidate
 
-    # Path 2: same date/amount/type with matching description root. Tightly
-    # scoped to avoid colliding with two genuine same-day same-amount repeats
-    # (e.g. two identical fares charged the same day): we require either the
-    # raw descriptions to differ (i.e. normalization stripped something) or
-    # the statuses to differ — the signature of one operation re-emitted
-    # under a new id.
-    incoming_root = _description_root(txn_data.description)
-    if not incoming_root:
-        return None
-
+    # Path 2: pending↔posted twin on the same account/date/amount/type. The
+    # status differential is the load-bearing signal — without it we'd risk
+    # collapsing two genuinely separate transactions that happen to share a
+    # day and amount. A light description-similarity check guards against
+    # the residual false positive of two different merchants charging the
+    # same amount the same day where one is pending and one is posted.
     result = await session.execute(
         select(Transaction).where(
             Transaction.account_id == account_id,
@@ -687,19 +649,14 @@ async def _find_synced_duplicate(
             Transaction.date == txn_data.date,
             Transaction.amount == txn_data.amount,
             Transaction.type == txn_data.type,
+            Transaction.status != txn_data.status,
             Transaction.external_id != txn_data.external_id,
         )
     )
     for candidate in result.scalars():
         if candidate.external_id and candidate.external_id.startswith("bill_charge:"):
             continue
-        if _description_root(candidate.description) != incoming_root:
-            continue
-        descriptions_differ = (candidate.description or "").strip() != (
-            txn_data.description or ""
-        ).strip()
-        statuses_differ = candidate.status != txn_data.status
-        if descriptions_differ or statuses_differ:
+        if _description_similarity(candidate.description, txn_data.description) >= 0.7:
             return candidate
 
     return None
@@ -1148,12 +1105,11 @@ async def sync_connection(
                     merged_count += 1
                     continue
 
-                # Pass 3: synced-vs-synced fingerprint match. Catches
-                # provider duplicates where the same logical operation comes
-                # back with two different external ids — typically a
-                # scheduled/pending row re-emitted as a separate posted row,
-                # or a credit-card installment that's posted on the current
-                # bill and still scheduled against the next one.
+                # Pass 3: pending↔posted twin (and the credit-card
+                # installment variant). When the same logical operation
+                # comes back under a new external id with a different
+                # status, fingerprint match collapses it instead of letting
+                # both rows land.
                 synced_dup = await _find_synced_duplicate(
                     session, account.id, txn_data
                 )

@@ -12,7 +12,6 @@ from app.models.category import Category
 from app.models.transaction import Transaction
 from app.providers.base import AccountData, BillData, ConnectionData, ConnectTokenData, TransactionData
 from app.services.connection_service import (
-    _description_root,
     _description_similarity,
     _match_pluggy_category,
     create_connect_token,
@@ -1529,64 +1528,31 @@ async def test_sync_updates_existing_bill_idempotently(
 # ---------------------------------------------------------------------------
 
 
-def test_description_root_strips_identifier_suffix():
-    a = _description_root("INVESTIMENTO/OPERACAOB3* - DOCTO: 8162")
-    b = _description_root("INVESTIMENTO/OPERACAOB3* - DOCTO: 1270397")
-    assert a == b
-    assert a == "investimento/operacaob3*"
-
-
-def test_description_root_strips_multiple_identifier_suffixes():
-    """Multiple per-event identifiers on a single description must all be
-    stripped so the stable prefix matches across twins."""
-    a = _description_root("PIX ENVIADO - DOCTO: 1234 - REF 99")
-    b = _description_root("PIX ENVIADO - DOCTO: 5678 - REF 17")
-    assert a == b == "pix enviado"
-
-
-def test_description_root_preserves_distinct_merchants():
-    """Different stable prefixes must not collapse, even at same amount/date."""
-    assert _description_root("UBER TRIP 12345") != _description_root("LYFT TRIP 12345")
-
-
-def test_description_root_handles_none_and_empty():
-    assert _description_root(None) == ""
-    assert _description_root("") == ""
-    assert _description_root("   ") == ""
-
-
-def test_description_root_idempotent():
-    raw = "INVESTIMENTO/OPERACAOB3* - DOCTO: 8162"
-    once = _description_root(raw)
-    twice = _description_root(once)
-    assert once == twice
-
-
 @pytest.mark.asyncio
-async def test_sync_dedupes_scheduled_posted_twin(
+async def test_sync_dedupes_pending_posted_twin_in_same_fetch(
     session: AsyncSession, test_user,
 ):
-    """A provider emits the same logical operation twice with different
-    per-event identifiers (e.g. document numbers). Both come back as
-    `posted` with different external_ids. Only one row must land."""
+    """A provider emits the same operation twice in a single fetch — once
+    pending (the scheduled row) and once posted (the executed row) — under
+    two different external_ids. Only the posted row must land."""
     conn = await _make_connection(session, test_user.id, "Twin Bank")
     mock_provider = AsyncMock()
     mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
     mock_provider.get_accounts = AsyncMock(return_value=[
         AccountData(
-            external_id="brad-acc-1", name="Conta Corrente",
+            external_id="twin-acc-1", name="Conta Corrente",
             type="checking", balance=Decimal("1000"), currency="BRL",
         ),
     ])
     mock_provider.get_transactions = AsyncMock(return_value=[
         TransactionData(
-            external_id="pluggy-id-A",
+            external_id="provider-id-pending",
             description="INVESTIMENTO/OPERACAOB3* - DOCTO: 8162",
             amount=Decimal("943.23"), date=date(2026, 4, 20),
-            type="debit", currency="BRL", status="posted",
+            type="debit", currency="BRL", status="pending",
         ),
         TransactionData(
-            external_id="pluggy-id-B",
+            external_id="provider-id-posted",
             description="INVESTIMENTO/OPERACAOB3* - DOCTO: 1270397",
             amount=Decimal("943.23"), date=date(2026, 4, 20),
             type="debit", currency="BRL", status="posted",
@@ -1605,9 +1571,102 @@ async def test_sync_dedupes_scheduled_posted_twin(
             Transaction.source == "sync",
         )
     )).scalars().all()
-    assert len(rows) == 1, "twin operation must collapse to a single row"
-    # Whichever id won, the surviving row keeps the same description root.
-    assert "INVESTIMENTO/OPERACAOB3" in rows[0].description
+    assert len(rows) == 1, "pending+posted twin must collapse to a single row"
+    assert rows[0].status == "posted"
+    assert rows[0].external_id == "provider-id-posted"
+
+
+@pytest.mark.asyncio
+async def test_sync_dedupes_pending_posted_twin_with_identical_descriptions(
+    session: AsyncSession, test_user,
+):
+    """Same case as above but the descriptions are byte-identical — the
+    status differential alone is enough to collapse them."""
+    conn = await _make_connection(session, test_user.id, "Identical Desc Bank")
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="id-acc-1", name="Conta",
+            type="checking", balance=Decimal("0"), currency="BRL",
+        ),
+    ])
+    mock_provider.get_transactions = AsyncMock(return_value=[
+        TransactionData(
+            external_id="provider-pending",
+            description="PIX AGENDADO BENEFICIARIO XYZ",
+            amount=Decimal("250.00"), date=date(2026, 4, 22),
+            type="debit", currency="BRL", status="pending",
+        ),
+        TransactionData(
+            external_id="provider-posted",
+            description="PIX AGENDADO BENEFICIARIO XYZ",
+            amount=Decimal("250.00"), date=date(2026, 4, 22),
+            type="debit", currency="BRL", status="posted",
+        ),
+    ])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        await sync_connection(session, conn.id, test_user.id)
+
+    rows = (await session.execute(
+        select(Transaction).where(
+            Transaction.user_id == test_user.id,
+            Transaction.source == "sync",
+        )
+    )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].status == "posted"
+
+
+@pytest.mark.asyncio
+async def test_sync_keeps_unrelated_pending_and_posted_with_different_descriptions(
+    session: AsyncSession, test_user,
+):
+    """Two unrelated transactions that happen to share a date and amount —
+    one pending, one posted, completely different merchants — must NOT be
+    collapsed. The description-similarity guard protects against this
+    false positive."""
+    conn = await _make_connection(session, test_user.id, "Unrelated Bank")
+    mock_provider = AsyncMock()
+    mock_provider.refresh_credentials = AsyncMock(return_value={"token": "t"})
+    mock_provider.get_accounts = AsyncMock(return_value=[
+        AccountData(
+            external_id="unr-acc-1", name="Conta",
+            type="checking", balance=Decimal("0"), currency="BRL",
+        ),
+    ])
+    mock_provider.get_transactions = AsyncMock(return_value=[
+        TransactionData(
+            external_id="unrelated-pending",
+            description="STARBUCKS COFFEE",
+            amount=Decimal("25.00"), date=date(2026, 4, 22),
+            type="debit", currency="BRL", status="pending",
+        ),
+        TransactionData(
+            external_id="unrelated-posted",
+            description="UBER TRIP",
+            amount=Decimal("25.00"), date=date(2026, 4, 22),
+            type="debit", currency="BRL", status="posted",
+        ),
+    ])
+
+    with patch("app.services.connection_service.get_provider", return_value=mock_provider), \
+         patch("app.services.connection_service.detect_transfer_pairs", new_callable=AsyncMock), \
+         patch("app.services.connection_service.stamp_primary_amount", new_callable=AsyncMock), \
+         patch("app.services.connection_service.apply_rules_to_transaction", new_callable=AsyncMock):
+        await sync_connection(session, conn.id, test_user.id)
+
+    rows = (await session.execute(
+        select(Transaction).where(
+            Transaction.user_id == test_user.id,
+            Transaction.source == "sync",
+        )
+    )).scalars().all()
+    assert len(rows) == 2, "unrelated transactions must not be collapsed"
 
 
 @pytest.mark.asyncio

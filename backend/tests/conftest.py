@@ -1,9 +1,43 @@
 import asyncio
+import os
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, patch
+
+# --- Agents test setup (must run BEFORE app.main is imported) ---------------
+# Force the optional agents feature on for the test process so the routes
+# are mounted and the agent models are reachable. Provide deterministic
+# JWT/MCP secrets so test fixtures can mint tokens.
+os.environ.setdefault("AGENTS_ENABLED", "true")
+os.environ.setdefault("AGENTS_MCP_JWT_SECRET", "test-secret-not-for-production")
+os.environ.setdefault("AGENTS_BUILTIN_MCP_URL", "http://test-mcp:8765/mcp")
+
+# pgvector's Vector type only compiles on PostgreSQL. Tests use SQLite, so
+# we shim it with JSON before any model module imports it. Production runs
+# pgvector unchanged.
+import sqlalchemy.types  # noqa: E402
+import pgvector.sqlalchemy as _pgv  # noqa: E402
+
+
+class _VectorJSON(sqlalchemy.types.JSON):
+    """JSON-backed stand-in for pgvector's Vector type, for SQLite tests."""
+
+    cache_ok = True
+
+    def __init__(self, dim=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def cosine_distance(self, other):  # type: ignore[override]
+        # Tests for similarity_search are exercised against the real Postgres;
+        # the SQLite path just needs a valid SQL fragment.
+        from sqlalchemy import literal
+        return literal(0.5)
+
+
+_pgv.Vector = _VectorJSON  # type: ignore[attr-defined]
+# ---------------------------------------------------------------------------
 
 import pytest
 import pytest_asyncio
@@ -28,6 +62,16 @@ from app.models.credit_card_bill import CreditCardBill  # noqa: F401
 from app.models.group import Group, GroupMember  # noqa: F401
 from app.models.transaction_split import TransactionSplit  # noqa: F401
 from app.models.group_settlement import GroupSettlement  # noqa: F401
+# Agent models — gated by AGENTS_ENABLED above so tests always cover them.
+from app.agents.models import (  # noqa: E402,F401
+    Agent,
+    AgentTool,
+    Conversation,
+    Message,
+    KnowledgeDoc,
+    KnowledgeChunk,
+    LlmUsage,
+)
 
 # Use SQLite for tests — fast, no external dependency
 TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
@@ -332,6 +376,39 @@ async def test_rules(
     for rule in rules:
         await session.refresh(rule)
     return rules
+
+
+@pytest_asyncio.fixture
+async def test_agent(session: AsyncSession, test_user: User) -> Agent:
+    """A baseline agent for tests."""
+    agent = Agent(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        name="Test Agent",
+        description="A test agent",
+        system_prompt="You are a helpful assistant.",
+        provider="openai",
+        model="gpt-4o-mini",
+        temperature=0.4,
+    )
+    session.add(agent)
+    await session.commit()
+    await session.refresh(agent)
+    return agent
+
+
+@pytest_asyncio.fixture
+async def test_conversation(session: AsyncSession, test_user: User, test_agent: Agent) -> Conversation:
+    conv = Conversation(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        agent_id=test_agent.id,
+        channel="web",
+    )
+    session.add(conv)
+    await session.commit()
+    await session.refresh(conv)
+    return conv
 
 
 @pytest_asyncio.fixture

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { getAccountName } from '@/lib/account-utils'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -62,7 +62,9 @@ import { ChangePasswordDialog } from '@/components/change-password-dialog'
 import { TwoFactorSetup } from '@/components/two-factor-setup'
 import { CommandPalette } from '@/components/command-palette'
 import { useCommandPaletteHotkey } from '@/hooks/use-command-palette-hotkey'
-import { Search } from 'lucide-react'
+import { GlobalChatPanel } from '@/components/global-chat-panel'
+import { useFeatureFlags } from '@/hooks/use-feature-flags'
+import { MessageSquare, Search, Sparkles } from 'lucide-react'
 
 type NavItem =
   | { type: 'link'; key: string; path: string; icon: React.ElementType }
@@ -114,8 +116,34 @@ export function AppLayout() {
   const [twoFactorOpen, setTwoFactorOpen] = useState(false)
   const [backingUp, setBackingUp] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
   useCommandPaletteHotkey(setPaletteOpen)
+  const { agentsEnabled } = useFeatureFlags()
+  // ⌘J / Ctrl+J toggles the global slide-over chat from anywhere.
+  // Distinct from ⌘K (command palette) so users can have both open.
+  // Gated on agentsEnabled so the hotkey is a no-op when the feature is
+  // off — keeps ⌘J free for browsers/other tools.
+  useEffect(() => {
+    if (!agentsEnabled) return
+    const handler = (e: KeyboardEvent) => {
+      const isMod = e.metaKey || e.ctrlKey
+      if (isMod && (e.key === 'j' || e.key === 'J')) {
+        e.preventDefault()
+        setChatOpen((prev) => !prev)
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [agentsEnabled])
+  // Append the agents nav item only when the feature is on instance-wide.
+  const finalNavItems: NavItem[] = agentsEnabled
+    ? [
+        ...navItems,
+        { type: 'separator', labelKey: 'nav.groupAgents' },
+        { type: 'link', key: 'agents', path: '/agents', icon: Sparkles },
+      ]
+    : navItems
   const isMac =
     typeof navigator !== 'undefined' &&
     /Mac|iPhone|iPad|iPod/.test(navigator.platform)
@@ -296,7 +324,7 @@ export function AppLayout() {
           <div className="flex-1 min-h-0 overflow-y-auto">
           {/* Nav */}
           <nav className="flex flex-col gap-0.5 p-3" data-tour="sidebar">
-            {navItems.map((item, idx) => {
+            {finalNavItems.map((item, idx) => {
               if (item.type === 'separator') {
                 return (
                   <div key={`sep-${idx}`} className="pt-3 pb-1 px-3">
@@ -564,6 +592,25 @@ export function AppLayout() {
         onClose={() => setTwoFactorOpen(false)}
       />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      {agentsEnabled && (
+        <>
+          {/* Floating chat trigger — pinned to the bottom-right of the
+              viewport so the global slide-over is reachable from every
+              page without taking a sidebar slot. ⌘J also opens it. */}
+          {!chatOpen && (
+            <button
+              type="button"
+              onClick={() => setChatOpen(true)}
+              aria-label={t('agents.globalChat.openHint', 'Open chat (⌘J)')}
+              title={`${t('agents.globalChat.title', 'Chat')} (${isMac ? '⌘J' : 'Ctrl+J'})`}
+              className="fixed bottom-5 right-5 z-40 h-12 w-12 rounded-full bg-foreground text-background shadow-lg flex items-center justify-center hover:opacity-90 transition-opacity"
+            >
+              <MessageSquare className="h-5 w-5" />
+            </button>
+          )}
+          <GlobalChatPanel open={chatOpen} onOpenChange={setChatOpen} />
+        </>
+      )}
       <UpdateAvailableDialog
         open={updateDialogOpen}
         onClose={() => setUpdateDialogOpen(false)}

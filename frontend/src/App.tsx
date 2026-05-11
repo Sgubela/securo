@@ -27,6 +27,9 @@ const PayeesPage = lazy(() => import('@/pages/payees'))
 const GroupsPage = lazy(() => import('@/pages/groups'))
 const GroupDetailPage = lazy(() => import('@/pages/group-detail'))
 const AdminSettingsPage = lazy(() => import('@/pages/admin/settings'))
+const AgentsListPage = lazy(() => import('@/pages/agents-list'))
+const AgentDetailPage = lazy(() => import('@/pages/agent-detail'))
+const AgentConnectionsPage = lazy(() => import('@/pages/agent-connections'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -79,6 +82,9 @@ function App() {
                   <Route path="/groups" element={<GroupsPage />} />
                   <Route path="/groups/:id" element={<GroupDetailPage />} />
                   <Route path="/admin" element={<AdminRoute><AdminSettingsPage /></AdminRoute>} />
+                  <Route path="/agents" element={<AgentsListPage />} />
+                  <Route path="/agents/connections" element={<AgentConnectionsPage />} />
+                  <Route path="/agents/:id" element={<AgentDetailPage />} />
                 </Route>
               </Routes>
             </Suspense>

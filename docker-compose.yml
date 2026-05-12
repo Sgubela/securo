@@ -113,12 +113,7 @@ services:
   mcp-server:
     <<: *backend-base
     profiles: [agents]
-    # Pre-install matches the backend service: the image's pre-built
-    # cryptography wheel is incompatible on this arch and python-jose
-    # crashes (SIGILL) at import time without it.
-    command:
-      sh -c "pip install --quiet cryptography==44.0.1 &&
-      uvicorn mcp_server.main:app --host 0.0.0.0 --port 8765"
+    command: uvicorn mcp_server.main:app --host 0.0.0.0 --port 8765
     expose:
       - "8765"
 

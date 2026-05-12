@@ -23,10 +23,14 @@ interface Props {
   connection?: LlmConnection | null
 }
 
-const KIND_LABELS: Record<LlmConnectionKind, { label: string; needsBaseUrl: boolean; needsKey: boolean; modelHint: string; urlHint: string }> = {
+const KIND_LABELS: Record<LlmConnectionKind, { label: string; needsBaseUrl: boolean; needsKey: boolean; modelHint: string; urlHint: string; defaultModel?: string }> = {
   ollama: { label: 'Ollama', needsBaseUrl: false, needsKey: false, modelHint: 'llama3.1:8b', urlHint: 'http://host.docker.internal:11434' },
-  openai: { label: 'OpenAI', needsBaseUrl: false, needsKey: true, modelHint: 'gpt-4o-mini', urlHint: '' },
-  anthropic: { label: 'Anthropic', needsBaseUrl: false, needsKey: true, modelHint: 'claude-haiku-4-5', urlHint: '' },
+  // OpenAI + Anthropic ship a sensible default model so non-tech users
+  // don't need to know which id to type. Self-hosted kinds (Ollama,
+  // OpenAI-compatible) intentionally have NO default — the right model
+  // depends on what the user actually has installed/loaded.
+  openai: { label: 'OpenAI', needsBaseUrl: false, needsKey: true, modelHint: 'gpt-4o-mini', urlHint: '', defaultModel: 'gpt-4o-mini' },
+  anthropic: { label: 'Anthropic', needsBaseUrl: false, needsKey: true, modelHint: 'claude-haiku-4-5', urlHint: '', defaultModel: 'claude-haiku-4-5' },
   openai_compatible: { label: 'OpenAI-compatible (LM Studio, vLLM, Groq, Together, …)', needsBaseUrl: true, needsKey: false, modelHint: 'llama3.1-70b', urlHint: 'http://192.168.1.142:1234' },
 }
 
@@ -41,7 +45,21 @@ export function ConnectionFormDialog({ open, onOpenChange, connection }: Props) 
   const [apiKey, setApiKey] = useState('')
   const [keyTouched, setKeyTouched] = useState(false)
   const [defaultModel, setDefaultModel] = useState('')
+  // Track whether the user typed in the model field. If they didn't,
+  // switching kinds re-seeds the field with the new kind's default
+  // model (where one exists). Once they type, we never overwrite.
+  const [modelTouched, setModelTouched] = useState(false)
   const [isDefault, setIsDefault] = useState(false)
+
+  /** Switch the connector kind and, when the user is in the create
+   *  flow and hasn't customized the model field, auto-fill the new
+   *  kind's preset (only OpenAI + Anthropic ship one). */
+  const handleKindChange = (newKind: LlmConnectionKind) => {
+    setKind(newKind)
+    if (isEdit) return
+    if (modelTouched) return
+    setDefaultModel(KIND_LABELS[newKind].defaultModel ?? '')
+  }
 
   useEffect(() => {
     if (connection) {
@@ -51,6 +69,9 @@ export function ConnectionFormDialog({ open, onOpenChange, connection }: Props) 
       setApiKey('')
       setKeyTouched(false)
       setDefaultModel(connection.default_model ?? '')
+      // Editing a saved connection — treat the field as already
+      // user-touched so kind swaps don't clobber what's stored.
+      setModelTouched(true)
       setIsDefault(connection.is_default)
     } else {
       setName('')
@@ -58,7 +79,11 @@ export function ConnectionFormDialog({ open, onOpenChange, connection }: Props) 
       setBaseUrl('')
       setApiKey('')
       setKeyTouched(false)
-      setDefaultModel('')
+      // Seed the model field with the initial kind's default (none
+      // for ollama). Switching kinds inside the form will re-seed via
+      // handleKindChange.
+      setDefaultModel(KIND_LABELS['ollama'].defaultModel ?? '')
+      setModelTouched(false)
       setIsDefault(false)
     }
   }, [connection, open])
@@ -118,7 +143,7 @@ export function ConnectionFormDialog({ open, onOpenChange, connection }: Props) 
           </div>
           <div className="grid gap-2">
             <Label>{t('agents.connections.kind')}</Label>
-            <Select value={kind} onValueChange={(v) => setKind(v as LlmConnectionKind)} disabled={isEdit}>
+            <Select value={kind} onValueChange={(v) => handleKindChange(v as LlmConnectionKind)} disabled={isEdit}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -172,7 +197,10 @@ export function ConnectionFormDialog({ open, onOpenChange, connection }: Props) 
             <Label>{t('agents.connections.defaultModel')}</Label>
             <Input
               value={defaultModel}
-              onChange={(e) => setDefaultModel(e.target.value)}
+              onChange={(e) => {
+                setDefaultModel(e.target.value)
+                setModelTouched(true)
+              }}
               placeholder={meta.modelHint}
             />
           </div>

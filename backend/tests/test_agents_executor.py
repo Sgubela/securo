@@ -424,14 +424,15 @@ async def test_auto_context_primer_prepended_when_enabled(session, test_user, te
             user_message="hi",
         )
     sys_msgs = captured["system"]
-    # Now: runtime guardrail [0] + primer [1] + agent prompt [2].
-    assert len(sys_msgs) == 3, f"expected guardrail + primer + agent prompt, got {len(sys_msgs)}"
+    # Stack: guardrail [0] + identity primer [1] + agent system_prompt [2] + auto-context [3].
+    assert len(sys_msgs) == 4, f"expected guardrail + identity + agent prompt + auto-context, got {len(sys_msgs)}"
     assert "Runtime rules" in sys_msgs[0]
     assert "propose_" in sys_msgs[0]
-    assert "Context for this conversation" in sys_msgs[1]
-    assert "test@example.com" in sys_msgs[1]  # uses test_user fixture's email
-    assert "Conta Corrente" in sys_msgs[1]    # account name from fixture
+    assert "Securo" in sys_msgs[1]            # identity primer mentions the product
     assert sys_msgs[2] == "You are helpful."
+    assert "Context for this conversation" in sys_msgs[3]
+    assert "test@example.com" in sys_msgs[3]  # uses test_user fixture's email
+    assert "Conta Corrente" in sys_msgs[3]    # account name from fixture
 
 
 async def test_auto_context_primer_skipped_when_disabled(session, test_user, test_agent, test_conversation):
@@ -462,10 +463,11 @@ async def test_auto_context_primer_skipped_when_disabled(session, test_user, tes
             user_message="hi",
         )
     sys_msgs = captured["system"]
-    # Guardrail [0] + agent prompt [1]; no primer.
-    assert len(sys_msgs) == 2
+    # Guardrail [0] + identity [1] + agent prompt [2]; no auto-context primer.
+    assert len(sys_msgs) == 3
     assert "Runtime rules" in sys_msgs[0]
-    assert sys_msgs[1] == "Just the agent prompt."
+    assert "Securo" in sys_msgs[1]
+    assert sys_msgs[2] == "Just the agent prompt."
 
 
 async def test_runtime_guardrail_always_present_even_with_no_agent_prompt(session, test_user, test_agent, test_conversation):
@@ -492,9 +494,13 @@ async def test_runtime_guardrail_always_present_even_with_no_agent_prompt(sessio
             user_message="hi",
         )
     sys_msgs = captured["system"]
-    assert len(sys_msgs) == 1
+    # Guardrail [0] + identity primer [1] are the irreducible minimum —
+    # both are always present even when the user gave no system_prompt
+    # and turned auto-context off.
+    assert len(sys_msgs) == 2
     assert "Runtime rules" in sys_msgs[0]
     assert "propose_" in sys_msgs[0]
+    assert "Securo" in sys_msgs[1]
 
 
 async def test_max_iterations_terminates_runaway_agent(session, test_user, test_agent, test_conversation):

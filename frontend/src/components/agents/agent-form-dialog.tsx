@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import { Settings2 } from 'lucide-react'
+import { ArrowRight, Plug, Settings2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -26,8 +26,6 @@ interface Props {
   providers: string[]
 }
 
-const NO_CONNECTION = '__none__'
-
 export function AgentFormDialog({ open, onOpenChange, agent }: Props) {
   const { t } = useTranslation()
   const qc = useQueryClient()
@@ -35,7 +33,11 @@ export function AgentFormDialog({ open, onOpenChange, agent }: Props) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
-  const [connectionId, setConnectionId] = useState<string>(NO_CONNECTION)
+  // Empty string = nothing picked yet. Required to submit; we no
+  // longer support an "instance default" sentinel because there is no
+  // such thing — a connection is what tells the agent how to reach an
+  // LLM.
+  const [connectionId, setConnectionId] = useState<string>('')
   const [model, setModel] = useState('')
   const [temperature, setTemperature] = useState('0.4')
   const [autoContext, setAutoContext] = useState(true)
@@ -52,7 +54,7 @@ export function AgentFormDialog({ open, onOpenChange, agent }: Props) {
       setName(agent.name)
       setDescription(agent.description ?? '')
       setSystemPrompt(agent.system_prompt ?? '')
-      setConnectionId(agent.connection_id ?? NO_CONNECTION)
+      setConnectionId(agent.connection_id ?? '')
       setModel(agent.model ?? '')
       setTemperature(String(agent.temperature ?? 0.4))
       setAutoContext(agent.auto_context ?? true)
@@ -61,13 +63,26 @@ export function AgentFormDialog({ open, onOpenChange, agent }: Props) {
       setName('')
       setDescription('')
       setSystemPrompt('')
-      setConnectionId(NO_CONNECTION)
+      // Pre-select the user's default connection (or the only one,
+      // if there's just one) so the form is one click closer to done.
+      setConnectionId('')
       setModel('')
       setTemperature('0.4')
       setAutoContext(true)
       setIsDefault(false)
     }
   }, [agent, open])
+
+  // When connections load (or the dialog opens), pre-select the most
+  // sensible default: the user-flagged default connection, or the only
+  // one if there's a single connection.
+  useEffect(() => {
+    if (!open || isEdit || connectionId) return
+    if (!connections || connections.length === 0) return
+    const def = connections.find((c) => c.is_default)
+    setConnectionId(def?.id ?? connections[0].id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, connections])
 
   const selectedConnection = connections?.find((c) => c.id === connectionId)
 
@@ -90,17 +105,23 @@ export function AgentFormDialog({ open, onOpenChange, agent }: Props) {
       toast.error(t('agents.form.nameRequired'))
       return
     }
+    if (!connectionId) {
+      toast.error(t('agents.form.connectionRequired', 'Pick a connection — agents need one to talk to an LLM.'))
+      return
+    }
     saveMut.mutate({
       name: name.trim(),
       description: description.trim() || null,
       system_prompt: systemPrompt,
-      connection_id: connectionId === NO_CONNECTION ? null : connectionId,
+      connection_id: connectionId,
       model: model.trim() || null,
       temperature: Number(temperature) || 0.4,
       auto_context: autoContext,
       is_default: isDefault,
     })
   }
+
+  const noConnections = connections !== undefined && connections.length === 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -133,46 +154,73 @@ export function AgentFormDialog({ open, onOpenChange, agent }: Props) {
               placeholder={t('agents.form.systemPromptPlaceholder')}
             />
           </div>
-          <div className="grid grid-cols-[1fr_1fr] gap-3">
-            <div className="grid gap-2">
-              <div className="flex items-center justify-between">
-                <Label>{t('agents.form.connection')}</Label>
+          {noConnections ? (
+            // No connections at all → block the create flow with a
+            // useful CTA. Otherwise the user fills out the form and
+            // gets a confusing error when they hit "create".
+            <div className="rounded-md border border-dashed p-4 flex items-start gap-3">
+              <Plug className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium">
+                  {t('agents.form.needConnectionTitle', 'Add an LLM connection first')}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {t(
+                    'agents.form.needConnectionHint',
+                    'An agent needs a connection (OpenAI, Anthropic, Ollama, …) to talk to a model. Set one up, then come back here.',
+                  )}
+                </p>
                 <Link
                   to="/agents/connections"
-                  className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
                   onClick={() => onOpenChange(false)}
+                  className="inline-flex items-center gap-1 mt-2 text-xs font-medium text-primary hover:underline"
                 >
-                  <Settings2 className="h-3 w-3" />
-                  {t('agents.form.manageConnections')}
+                  {t('agents.form.goToConnections', 'Go to connections')}
+                  <ArrowRight className="h-3 w-3" />
                 </Link>
               </div>
-              <Select value={connectionId} onValueChange={setConnectionId}>
-                <SelectTrigger>
-                  <SelectValue placeholder={t('agents.instanceDefault')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_CONNECTION}>{t('agents.instanceDefault')}</SelectItem>
-                  {(connections ?? []).map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name} <span className="text-muted-foreground ml-1">({c.kind})</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="agent-model">{t('agents.form.model')}</Label>
-              <Input
-                id="agent-model"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder={selectedConnection?.default_model || t('agents.form.modelPlaceholder')}
-              />
-              {!model && selectedConnection?.default_model && (
-                <p className="text-xs text-muted-foreground">{t('agents.form.willUseConnectionDefault', { model: selectedConnection.default_model })}</p>
-              )}
+          ) : (
+            <div className="grid grid-cols-[1fr_1fr] gap-3">
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between">
+                  <Label>{t('agents.form.connection')}</Label>
+                  <Link
+                    to="/agents/connections"
+                    className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                    onClick={() => onOpenChange(false)}
+                  >
+                    <Settings2 className="h-3 w-3" />
+                    {t('agents.form.manageConnections')}
+                  </Link>
+                </div>
+                <Select value={connectionId} onValueChange={setConnectionId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('agents.form.connectionPlaceholder', 'Pick a connection')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(connections ?? []).map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name} <span className="text-muted-foreground ml-1">({c.kind})</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="agent-model">{t('agents.form.model')}</Label>
+                <Input
+                  id="agent-model"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder={selectedConnection?.default_model || t('agents.form.modelPlaceholder')}
+                />
+                {!model && selectedConnection?.default_model && (
+                  <p className="text-xs text-muted-foreground">{t('agents.form.willUseConnectionDefault', { model: selectedConnection.default_model })}</p>
+                )}
+              </div>
             </div>
-          </div>
+          )}
           <div className="grid gap-2 max-w-[160px]">
             <Label htmlFor="agent-temp">{t('agents.form.temperature')}</Label>
             <Input
@@ -213,7 +261,7 @@ export function AgentFormDialog({ open, onOpenChange, agent }: Props) {
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t('agents.form.cancel')}
           </Button>
-          <Button onClick={submit} disabled={saveMut.isPending}>
+          <Button onClick={submit} disabled={saveMut.isPending || noConnections || !connectionId}>
             {saveMut.isPending ? t('agents.form.saving') : isEdit ? t('agents.form.save') : t('agents.form.create')}
           </Button>
         </DialogFooter>

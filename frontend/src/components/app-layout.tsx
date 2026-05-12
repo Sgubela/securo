@@ -29,7 +29,6 @@ import { ShellLogo } from '@/components/shell-logo'
 import { UpdateAvailableBanner } from '@/components/update-available-banner'
 import { UpdateAvailableDialog } from '@/components/update-available-dialog'
 import {
-  LayoutDashboard,
   ArrowLeftRight,
   Building2,
   SlidersHorizontal,
@@ -64,7 +63,7 @@ import { CommandPalette } from '@/components/command-palette'
 import { useCommandPaletteHotkey } from '@/hooks/use-command-palette-hotkey'
 import { GlobalChatPanel } from '@/components/global-chat-panel'
 import { useFeatureFlags } from '@/hooks/use-feature-flags'
-import { Bot, MessageSquare, Search, Sparkles } from 'lucide-react'
+import { Bot, Search, Sparkles } from 'lucide-react'
 
 type NavItem =
   | { type: 'link'; key: string; path: string; icon: React.ElementType }

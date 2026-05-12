@@ -6,7 +6,6 @@ first-class tools keeps the agent from falling back to text search.
 """
 from __future__ import annotations
 
-from datetime import date
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession

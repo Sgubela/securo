@@ -9,15 +9,12 @@ Pattern:
   - `_FakeMCP` exposes one synthetic tool and records calls.
   - We patch `_provider_for` and pass our fake MCP into AgentExecutor.
 """
-import json
 import uuid
 from typing import AsyncIterator
 from unittest.mock import patch
 
 import pytest
-import pytest_asyncio
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.mcp.client import MCPRegistry, ToolHandle
 from app.agents.models.agent import Agent

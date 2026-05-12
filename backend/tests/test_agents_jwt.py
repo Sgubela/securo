@@ -8,7 +8,6 @@ Both sides share AGENTS_MCP_JWT_SECRET. We test that:
 """
 import time
 import uuid
-from unittest.mock import patch
 
 import pytest
 from jose import jwt

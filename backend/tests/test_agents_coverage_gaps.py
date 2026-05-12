@@ -75,7 +75,7 @@ async def test_allowed_tool_pairs_returns_none_when_no_rows(session, test_agent)
 async def test_get_default_agent_endpoint_returns_explicit_default(
     client, auth_headers, test_user
 ):
-    a = (await client.post("/api/agents", json={"name": "A"}, headers=auth_headers)).json()
+    await client.post("/api/agents", json={"name": "A"}, headers=auth_headers)
     b = (await client.post("/api/agents", json={"name": "B"}, headers=auth_headers)).json()
     # Mark B explicit default.
     await client.patch(f"/api/agents/{b['id']}", json={"is_default": True}, headers=auth_headers)

@@ -8,10 +8,8 @@ Tests cover:
   - very long single-paragraph fallback (hard split)
   - PDF / TXT mime extraction selection
 """
-import pytest
 
 from app.agents.services.chunking import (
-    OVERLAP_CHARS,
     TARGET_CHARS,
     chunk_text,
     chunks_from_upload,

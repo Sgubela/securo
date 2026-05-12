@@ -4,6 +4,8 @@ import { cn } from '@/lib/utils'
 import { Component, memo, type ReactNode } from 'react'
 import { AgentChart, type ChartSpec } from '@/components/agents/agent-chart'
 
+type NodeProps = { children?: ReactNode }
+
 interface Props {
   children: string
   className?: string
@@ -27,23 +29,23 @@ function _Markdown({ children, className }: Props) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          p: ({ children }) => <p className="my-2 whitespace-pre-wrap">{children}</p>,
-          ul: ({ children }) => <ul className="my-2 list-disc pl-5 space-y-0.5">{children}</ul>,
-          ol: ({ children }) => <ol className="my-2 list-decimal pl-5 space-y-0.5">{children}</ol>,
-          li: ({ children }) => <li className="marker:text-muted-foreground/70">{children}</li>,
-          h1: ({ children }) => <h1 className="text-base font-bold mt-3 mb-1.5">{children}</h1>,
-          h2: ({ children }) => <h2 className="text-[15px] font-semibold mt-3 mb-1.5">{children}</h2>,
-          h3: ({ children }) => <h3 className="text-sm font-semibold mt-2.5 mb-1">{children}</h3>,
-          h4: ({ children }) => <h4 className="text-sm font-semibold mt-2 mb-1">{children}</h4>,
-          strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-          em: ({ children }) => <em className="italic">{children}</em>,
-          del: ({ children }) => <del className="opacity-70">{children}</del>,
-          blockquote: ({ children }) => (
+          p: ({ children }: NodeProps) => <p className="my-2 whitespace-pre-wrap">{children}</p>,
+          ul: ({ children }: NodeProps) => <ul className="my-2 list-disc pl-5 space-y-0.5">{children}</ul>,
+          ol: ({ children }: NodeProps) => <ol className="my-2 list-decimal pl-5 space-y-0.5">{children}</ol>,
+          li: ({ children }: NodeProps) => <li className="marker:text-muted-foreground/70">{children}</li>,
+          h1: ({ children }: NodeProps) => <h1 className="text-base font-bold mt-3 mb-1.5">{children}</h1>,
+          h2: ({ children }: NodeProps) => <h2 className="text-[15px] font-semibold mt-3 mb-1.5">{children}</h2>,
+          h3: ({ children }: NodeProps) => <h3 className="text-sm font-semibold mt-2.5 mb-1">{children}</h3>,
+          h4: ({ children }: NodeProps) => <h4 className="text-sm font-semibold mt-2 mb-1">{children}</h4>,
+          strong: ({ children }: NodeProps) => <strong className="font-semibold">{children}</strong>,
+          em: ({ children }: NodeProps) => <em className="italic">{children}</em>,
+          del: ({ children }: NodeProps) => <del className="opacity-70">{children}</del>,
+          blockquote: ({ children }: NodeProps) => (
             <blockquote className="border-l-2 border-border pl-3 italic text-muted-foreground my-2">
               {children}
             </blockquote>
           ),
-          a: ({ href, children }) => (
+          a: ({ href, children }: NodeProps & { href?: string }) => (
             <a
               href={href}
               target="_blank"
@@ -54,17 +56,17 @@ function _Markdown({ children, className }: Props) {
             </a>
           ),
           hr: () => <hr className="my-3 border-border" />,
-          table: ({ children }) => (
+          table: ({ children }: NodeProps) => (
             <div className="my-2 overflow-x-auto">
               <table className="border-collapse text-xs">{children}</table>
             </div>
           ),
-          thead: ({ children }) => <thead className="bg-muted/60">{children}</thead>,
-          th: ({ children }) => (
+          thead: ({ children }: NodeProps) => <thead className="bg-muted/60">{children}</thead>,
+          th: ({ children }: NodeProps) => (
             <th className="border border-border px-2 py-1 text-left font-semibold">{children}</th>
           ),
-          td: ({ children }) => <td className="border border-border px-2 py-1 align-top">{children}</td>,
-          code: ({ className, children, ...props }) => {
+          td: ({ children }: NodeProps) => <td className="border border-border px-2 py-1 align-top">{children}</td>,
+          code: ({ className, children, ...props }: NodeProps & { className?: string }) => {
             const isFenced = typeof className === 'string' && className.startsWith('language-')
             // Special-case our agent chart code-fence: parse the JSON
             // body and render an inline recharts figure instead of a
@@ -99,12 +101,12 @@ function _Markdown({ children, className }: Props) {
               </code>
             )
           },
-          pre: ({ children }) => (
+          pre: ({ children }: NodeProps) => (
             <pre className="my-2 overflow-x-auto rounded-md border bg-background/60 p-3 text-xs leading-snug">
               {children}
             </pre>
           ),
-          input: ({ checked, type }) => {
+          input: ({ checked, type }: { checked?: boolean; type?: string }) => {
             // GFM task lists.
             if (type === 'checkbox') {
               return (

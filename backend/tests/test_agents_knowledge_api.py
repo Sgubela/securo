@@ -7,7 +7,6 @@ trip. Celery dispatch is mocked because we don't run a worker in tests.
 from __future__ import annotations
 
 import io
-import os
 import tempfile
 import uuid
 from unittest.mock import patch

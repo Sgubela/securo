@@ -363,7 +363,7 @@ async function applyProposal(data: ProposalData): Promise<string | void> {
         category_id: (p.category_id as string) || undefined,
         notes: (p.notes as string) || undefined,
         ...(splitsPayload ? { splits: splitsPayload } : {}),
-      } as any)
+      } as Parameters<typeof transactions.create>[0])
       return t.id
     }
     case 'create_recurring_transaction': {
@@ -378,12 +378,12 @@ async function applyProposal(data: ProposalData): Promise<string | void> {
         end_date: (p.end_date as string) || undefined,
         account_id: (p.account_id as string) || undefined,
         category_id: (p.category_id as string) || undefined,
-      } as any)
+      } as Parameters<typeof recurring.create>[0])
       return rt.id
     }
     case 'update_recurring_transaction': {
       const id = String((data.target as Record<string, unknown>).id)
-      await recurring.update(id, (data.changes || {}) as any)
+      await recurring.update(id, (data.changes || {}) as Parameters<typeof recurring.update>[1])
       return id
     }
     case 'cancel_recurring_transaction': {
@@ -391,7 +391,7 @@ async function applyProposal(data: ProposalData): Promise<string | void> {
       if (data.mode === 'delete') {
         await recurring.delete(id)
       } else {
-        await recurring.update(id, { is_active: false } as any)
+        await recurring.update(id, { is_active: false } as Parameters<typeof recurring.update>[1])
       }
       return id
     }
@@ -404,7 +404,7 @@ async function applyProposal(data: ProposalData): Promise<string | void> {
         initial_amount: (p.initial_amount as number) ?? undefined,
         icon: (p.icon as string) || undefined,
         color: (p.color as string) || undefined,
-      } as any)
+      } as Parameters<typeof goals.create>[0])
       return g.id
     }
   }

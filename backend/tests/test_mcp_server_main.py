@@ -8,7 +8,6 @@ read-only paths (avoid pgvector-dependent tools).
 from __future__ import annotations
 
 import json
-import os
 
 import httpx
 import pytest

@@ -135,7 +135,7 @@ function formatYAxis(v: number | string | undefined | null, currency?: string): 
   }).format(v)
 }
 
-function _AgentChart({ spec }: Props) {
+function AgentChartImpl({ spec }: Props) {
   const { t } = useTranslation()
   if (!spec || !Array.isArray(spec.data) || spec.data.length === 0) {
     return (
@@ -278,6 +278,6 @@ function renderChart(
  *  blobs the LLM emitted once) so a re-render with the same spec is a
  *  no-op. */
 export const AgentChart = memo(
-  _AgentChart,
+  AgentChartImpl,
   (prev, next) => JSON.stringify(prev.spec) === JSON.stringify(next.spec),
 )

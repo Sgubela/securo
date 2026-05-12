@@ -235,13 +235,20 @@ async def test_anthropic_chat_stream_parses_text_block_sequence():
 
 @pytest.mark.asyncio
 async def test_anthropic_chat_stream_parses_tool_use_block():
-    sse = [
-        f"data: {json.dumps({'type': 'content_block_start', 'index': 0, 'content_block': {'type': 'tool_use', 'id': 'toolu_1', 'name': 'list_accounts'}})}",
-        f"data: {json.dumps({'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'input_json_delta', 'partial_json': '{\"limit\":'}})}",
-        f"data: {json.dumps({'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'input_json_delta', 'partial_json': '5}'}})}",
-        f"data: {json.dumps({'type': 'content_block_stop', 'index': 0})}",
-        f"data: {json.dumps({'type': 'message_delta', 'delta': {'stop_reason': 'tool_use'}, 'usage': {'output_tokens': 1}})}",
+    # Build SSE lines via explicit json.dumps payloads — avoids backslash
+    # escapes inside f-strings, which Python 3.11 doesn't allow.
+    events = [
+        {"type": "content_block_start", "index": 0,
+         "content_block": {"type": "tool_use", "id": "toolu_1", "name": "list_accounts"}},
+        {"type": "content_block_delta", "index": 0,
+         "delta": {"type": "input_json_delta", "partial_json": '{"limit":'}},
+        {"type": "content_block_delta", "index": 0,
+         "delta": {"type": "input_json_delta", "partial_json": "5}"}},
+        {"type": "content_block_stop", "index": 0},
+        {"type": "message_delta",
+         "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1}},
     ]
+    sse = ["data: " + json.dumps(e) for e in events]
     _FakeAsyncClient.queue_stream.append(_FakeStreamResponse(status_code=200, lines=sse))
 
     provider = AnthropicProvider(api_key="sk-test")

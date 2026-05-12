@@ -277,12 +277,10 @@ async def test_generate_title_uses_llm(
     from app.agents.models.agent import Agent
     from app.agents.models.conversation import Conversation, Message
     from app.agents.providers.base import (
-        ChatMessage,
         ChatResponse,
         LLMProvider,
         Usage,
     )
-    from typing import AsyncIterator
 
     class _Scripted(LLMProvider):
         name = "openai"

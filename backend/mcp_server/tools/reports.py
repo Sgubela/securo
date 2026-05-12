@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services import dashboard_service, report_service
 from mcp_server.auth import CallContext
 from mcp_server.registry import tool
-from mcp_server.tools._helpers import num, parse_date
+from mcp_server.tools._helpers import parse_date
 
 
 def _pri_currency(ctx: CallContext) -> str:

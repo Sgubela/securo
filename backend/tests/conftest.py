@@ -39,29 +39,29 @@ class _VectorJSON(sqlalchemy.types.JSON):
 _pgv.Vector = _VectorJSON  # type: ignore[attr-defined]
 # ---------------------------------------------------------------------------
 
-import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+import pytest  # noqa: E402
+import pytest_asyncio  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker  # noqa: E402
 
-from app.core.database import Base, get_async_session
-from app.main import app
-from app.models.user import User
-from app.models.category import Category
-from app.models.bank_connection import BankConnection
-from app.models.account import Account
-from app.models.transaction import Transaction
-from app.models.rule import Rule
-from app.models.asset import Asset  # noqa: F401
-from app.models.asset_value import AssetValue  # noqa: F401
-from app.models.transaction_attachment import TransactionAttachment  # noqa: F401
-from app.models.payee import Payee, PayeeMapping  # noqa: F401
-from app.models.app_settings import AppSetting  # noqa: F401
-from app.models.goal import Goal  # noqa: F401
-from app.models.credit_card_bill import CreditCardBill  # noqa: F401
-from app.models.group import Group, GroupMember  # noqa: F401
-from app.models.transaction_split import TransactionSplit  # noqa: F401
-from app.models.group_settlement import GroupSettlement  # noqa: F401
+from app.core.database import Base, get_async_session  # noqa: E402
+from app.main import app  # noqa: E402
+from app.models.user import User  # noqa: E402
+from app.models.category import Category  # noqa: E402
+from app.models.bank_connection import BankConnection  # noqa: E402
+from app.models.account import Account  # noqa: E402
+from app.models.transaction import Transaction  # noqa: E402
+from app.models.rule import Rule  # noqa: E402
+from app.models.asset import Asset  # noqa: E402,F401
+from app.models.asset_value import AssetValue  # noqa: E402,F401
+from app.models.transaction_attachment import TransactionAttachment  # noqa: E402,F401
+from app.models.payee import Payee, PayeeMapping  # noqa: E402,F401
+from app.models.app_settings import AppSetting  # noqa: E402,F401
+from app.models.goal import Goal  # noqa: E402,F401
+from app.models.credit_card_bill import CreditCardBill  # noqa: E402,F401
+from app.models.group import Group, GroupMember  # noqa: E402,F401
+from app.models.transaction_split import TransactionSplit  # noqa: E402,F401
+from app.models.group_settlement import GroupSettlement  # noqa: E402,F401
 # Agent models — gated by AGENTS_ENABLED above so tests always cover them.
 from app.agents.models import (  # noqa: E402,F401
     Agent,

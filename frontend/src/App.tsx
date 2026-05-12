@@ -6,6 +6,7 @@ import { ThemeProvider } from '@/components/theme-provider'
 import { AuthProvider } from '@/contexts/auth-context'
 import { ProtectedRoute } from '@/components/protected-route'
 import { AdminRoute } from '@/components/admin-route'
+import { AgentsRoute } from '@/components/agents-route'
 import { AppLayout } from '@/components/app-layout'
 
 const SetupPage = lazy(() => import('@/pages/setup'))
@@ -82,9 +83,9 @@ function App() {
                   <Route path="/groups" element={<GroupsPage />} />
                   <Route path="/groups/:id" element={<GroupDetailPage />} />
                   <Route path="/admin" element={<AdminRoute><AdminSettingsPage /></AdminRoute>} />
-                  <Route path="/agents" element={<AgentsListPage />} />
-                  <Route path="/agents/connections" element={<AgentConnectionsPage />} />
-                  <Route path="/agents/:id" element={<AgentDetailPage />} />
+                  <Route path="/agents" element={<AgentsRoute><AgentsListPage /></AgentsRoute>} />
+                  <Route path="/agents/connections" element={<AgentsRoute><AgentConnectionsPage /></AgentsRoute>} />
+                  <Route path="/agents/:id" element={<AgentsRoute><AgentDetailPage /></AgentsRoute>} />
                 </Route>
               </Routes>
             </Suspense>

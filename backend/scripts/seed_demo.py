@@ -62,9 +62,9 @@ def _logo(domain: str) -> str:
 # from transactions, not from the Account.balance field).
 ACCOUNTS = [
     {"name": "Conta Nubank",        "type": "checking",    "currency": "BRL", "opening": Decimal("0.00")},
-    {"name": "Poupança Itaú",       "type": "savings",     "currency": "BRL", "opening": Decimal("18000.00")},
-    {"name": "Cartão Nubank",       "type": "credit_card", "currency": "BRL", "opening": Decimal("0.00"), "credit_limit": Decimal("8000.00")},
-    {"name": "Carteira USD",        "type": "checking",    "currency": "USD", "opening": Decimal("850.00")},
+    {"name": "Poupança Itaú",       "type": "savings",     "currency": "BRL", "opening": Decimal("6000.00")},
+    {"name": "Cartão Nubank",       "type": "credit_card", "currency": "BRL", "opening": Decimal("0.00"), "credit_limit": Decimal("3000.00")},
+    {"name": "Carteira USD",        "type": "checking",    "currency": "USD", "opening": Decimal("280.00")},
 ]
 
 # Icon names must be valid keys in frontend/src/lib/category-icons.ts
@@ -92,51 +92,54 @@ CATEGORIES = [
 
 # Brazilian merchants mapped to each category. Amounts are in BRL except
 # the Viagem (Travel) bucket which leans on the USD account abroad.
+# Amounts scaled to a typical Brazilian middle-class profile: ~R$3,300
+# monthly salary, ~R$950 rent, modest discretionary spending. Real
+# subscription prices (Netflix R$39.90 etc.) are kept exact.
 DEBIT_MERCHANTS: dict[str, list[tuple[str, float, float]]] = {
-    "Alimentação":   [("Pão de Açúcar", 180, 520), ("Carrefour", 220, 640), ("Hortifruti", 60, 180), ("Extra", 140, 380)],
-    "Aluguel":       [("Aluguel", 2800, 2800)],
-    "Contas":        [("Enel", 180, 320), ("Vivo", 95, 95), ("Net Claro", 150, 150), ("Sabesp", 80, 140)],
-    "Transporte":    [("Uber", 14, 65), ("99", 12, 45), ("Ipiranga", 180, 320), ("Shell", 200, 360)],
-    "Restaurantes":  [("iFood", 38, 120), ("Outback", 140, 280), ("Coco Bambu", 180, 360), ("Starbucks", 22, 48)],
-    "Lazer":         [("Cinemark", 45, 85), ("Steam", 60, 220), ("Ingresso.com", 80, 180)],
-    "Saúde":         [("Drogasil", 35, 120), ("Drogaria São Paulo", 28, 110), ("Consulta Médica", 220, 480)],
+    "Alimentação":   [("Pão de Açúcar", 60, 180), ("Carrefour", 75, 215), ("Hortifruti", 20, 60), ("Extra", 50, 130)],
+    "Aluguel":       [("Aluguel", 950, 950)],
+    "Contas":        [("Enel", 60, 110), ("Vivo", 50, 50), ("Net Claro", 80, 80), ("Sabesp", 30, 50)],
+    "Transporte":    [("Uber", 5, 22), ("99", 4, 15), ("Ipiranga", 60, 110), ("Shell", 70, 120)],
+    "Restaurantes":  [("iFood", 13, 40), ("Outback", 50, 95), ("Coco Bambu", 60, 120), ("Starbucks", 7, 16)],
+    "Lazer":         [("Cinemark", 15, 30), ("Steam", 20, 75), ("Ingresso.com", 27, 60)],
+    "Saúde":         [("Drogasil", 12, 40), ("Drogaria São Paulo", 10, 35), ("Consulta Médica", 75, 160)],
     "Assinaturas":   [("Netflix", 39.90, 39.90), ("Spotify", 21.90, 21.90), ("Disney+", 33.90, 33.90), ("Amazon Prime", 14.90, 14.90)],
-    "Compras":       [("Mercado Livre", 45, 480), ("Magazine Luiza", 120, 680), ("Amazon", 60, 540), ("Renner", 90, 420)],
-    "Viagem":        [("Latam", 480, 1800), ("Booking", 320, 920), ("Decolar", 280, 1100)],
-    "Presentes":     [("Elo7", 80, 240), ("Amazon Presentes", 60, 280)],
+    "Compras":       [("Mercado Livre", 15, 160), ("Magazine Luiza", 40, 225), ("Amazon", 20, 180), ("Renner", 30, 140)],
+    "Viagem":        [("Latam", 160, 600), ("Booking", 105, 305), ("Decolar", 95, 365)],
+    "Presentes":     [("Elo7", 25, 80), ("Amazon Presentes", 20, 95)],
     "Tarifas":       [("Tarifa Nubank", 9, 19), ("IOF", 4, 12)],
-    "Outros":        [("Apple Store", 90, 480), ("Correios", 18, 60), ("Kalunga", 28, 180)],
+    "Outros":        [("Apple Store", 30, 160), ("Correios", 6, 20), ("Kalunga", 10, 60)],
 }
 
 CREDIT_MERCHANTS: dict[str, list[tuple[str, float, float]]] = {
-    "Salário":     [("Empresa Folha Pagamento", 9800, 9800)],
-    "Freelance":   [("Pagamento Freelance", 1200, 4200)],
-    "Reembolsos":  [("Reembolso Mercado Livre", 45, 220)],
-    "Dividendos":  [("Dividendo ITUB4", 38, 95), ("Dividendo PETR4", 120, 280), ("Dividendo MGLU3", 12, 28)],
-    "Bônus":       [("PLR", 4200, 4200)],
+    "Salário":     [("Empresa Folha Pagamento", 3300, 3300)],
+    "Freelance":   [("Pagamento Freelance", 400, 1400)],
+    "Reembolsos":  [("Reembolso Mercado Livre", 15, 75)],
+    "Dividendos":  [("Dividendo ITUB4", 12, 30), ("Dividendo PETR4", 40, 95), ("Dividendo MGLU3", 4, 10)],
+    "Bônus":       [("PLR", 1400, 1400)],
 }
 
 # Market-priced holdings — mix of B3 (Brazilian) tickers and one US stock
 # so the FX side of the product also shows up. last_price + logo_url are
 # pre-baked so the UI matches what a fresh yfinance fetch would produce.
 TICKER_ASSETS = [
-    {"name": "Itaú Unibanco",     "ticker": "ITUB4.SA", "units": Decimal("400"),    "last_price": Decimal("32.40"),    "currency": "BRL", "daily_pct": Decimal("0.00100"), "logo": _logo("itau.com.br")},
-    {"name": "Petrobras",         "ticker": "PETR4.SA", "units": Decimal("250"),    "last_price": Decimal("38.20"),    "currency": "BRL", "daily_pct": Decimal("0.00080"), "logo": _logo("petrobras.com.br")},
-    {"name": "Magazine Luiza",    "ticker": "MGLU3.SA", "units": Decimal("800"),    "last_price": Decimal("8.95"),     "currency": "BRL", "daily_pct": Decimal("0.00200"), "logo": _logo("magazineluiza.com.br")},
-    {"name": "Apple Inc.",        "ticker": "AAPL",     "units": Decimal("8"),      "last_price": Decimal("228.50"),   "currency": "USD", "daily_pct": Decimal("0.00150"), "logo": _logo("apple.com")},
-    {"name": "Bitcoin",           "ticker": "BTC-USD",  "units": Decimal("0.05"),   "last_price": Decimal("92500.00"), "currency": "USD", "daily_pct": Decimal("0.00400"), "logo": None},
+    {"name": "Itaú Unibanco",     "ticker": "ITUB4.SA", "units": Decimal("250"),    "last_price": Decimal("32.40"),    "currency": "BRL", "daily_pct": Decimal("0.00100"), "logo": _logo("itau.com.br")},
+    {"name": "Petrobras",         "ticker": "PETR4.SA", "units": Decimal("150"),    "last_price": Decimal("38.20"),    "currency": "BRL", "daily_pct": Decimal("0.00080"), "logo": _logo("petrobras.com.br")},
+    {"name": "Magazine Luiza",    "ticker": "MGLU3.SA", "units": Decimal("400"),    "last_price": Decimal("8.95"),     "currency": "BRL", "daily_pct": Decimal("0.00200"), "logo": _logo("magazineluiza.com.br")},
+    {"name": "Apple Inc.",        "ticker": "AAPL",     "units": Decimal("3"),      "last_price": Decimal("228.50"),   "currency": "USD", "daily_pct": Decimal("0.00150"), "logo": _logo("apple.com")},
+    {"name": "Bitcoin",           "ticker": "BTC-USD",  "units": Decimal("0.02"),   "last_price": Decimal("92500.00"), "currency": "USD", "daily_pct": Decimal("0.00400"), "logo": None},
 ]
 
 MANUAL_ASSETS = [
     {"name": "Apartamento próprio", "type": "real_estate", "currency": "BRL",
-     "purchase": Decimal("680000"), "current": Decimal("820000"), "daily_pct": Decimal("0.00040")},
+     "purchase": Decimal("260000"), "current": Decimal("320000"), "daily_pct": Decimal("0.00040")},
 ]
 
 RECURRING = [
-    ("Netflix",   Decimal("39.90"),   "debit",  "Assinaturas"),
-    ("Spotify",   Decimal("21.90"),   "debit",  "Assinaturas"),
-    ("Aluguel",   Decimal("2800.00"), "debit",  "Aluguel"),
-    ("Smart Fit", Decimal("99.90"),   "debit",  "Saúde"),
+    ("Netflix",   Decimal("39.90"),  "debit",  "Assinaturas"),
+    ("Spotify",   Decimal("21.90"),  "debit",  "Assinaturas"),
+    ("Aluguel",   Decimal("950.00"), "debit",  "Aluguel"),
+    ("Smart Fit", Decimal("99.90"),  "debit",  "Saúde"),
 ]
 
 
@@ -318,7 +321,7 @@ async def seed(email: str, password: str, months: int) -> None:
         salary_day = start.replace(day=5)
         while salary_day <= today:
             _add(brl_checking, salary_day, "Empresa Folha Pagamento", "Salário",
-                 Decimal("9800.00"), "credit")
+                 Decimal("3300.00"), "credit")
             year = salary_day.year + (1 if salary_day.month == 12 else 0)
             month = 1 if salary_day.month == 12 else salary_day.month + 1
             try:
@@ -330,7 +333,7 @@ async def seed(email: str, password: str, months: int) -> None:
         rent_day = start.replace(day=10)
         while rent_day <= today:
             _add(brl_checking, rent_day, "Aluguel", "Aluguel",
-                 Decimal("2800.00"), "debit")
+                 Decimal("950.00"), "debit")
             year = rent_day.year + (1 if rent_day.month == 12 else 0)
             month = 1 if rent_day.month == 12 else rent_day.month + 1
             try:
@@ -479,8 +482,8 @@ async def seed(email: str, password: str, months: int) -> None:
         session.add(Goal(
             user_id=uid,
             name="Reserva de Emergência",
-            target_amount=Decimal("25000.00"),
-            current_amount=Decimal("15400.00"),
+            target_amount=Decimal("8000.00"),
+            current_amount=Decimal("5000.00"),
             initial_amount=Decimal("0.00"),
             currency="BRL",
             target_date=today + timedelta(days=210),
@@ -492,8 +495,8 @@ async def seed(email: str, password: str, months: int) -> None:
         session.add(Goal(
             user_id=uid,
             name="Viagem ao Japão",
-            target_amount=Decimal("18000.00"),
-            current_amount=Decimal("7200.00"),
+            target_amount=Decimal("6000.00"),
+            current_amount=Decimal("2500.00"),
             initial_amount=Decimal("0.00"),
             currency="BRL",
             target_date=today + timedelta(days=300),
@@ -617,16 +620,16 @@ async def seed(email: str, password: str, months: int) -> None:
         # Monthly budgets for the current month + 2 months back so the
         # dashboard's category-progress bars have something to render.
         budget_targets = [
-            ("Aluguel",      Decimal("3000.00")),
-            ("Alimentação",  Decimal("2500.00")),
-            ("Transporte",   Decimal("1500.00")),
-            ("Restaurantes", Decimal("1500.00")),
-            ("Compras",      Decimal("1500.00")),
-            ("Lazer",        Decimal("500.00")),
-            ("Contas",       Decimal("1200.00")),
+            ("Aluguel",      Decimal("1000.00")),
+            ("Alimentação",  Decimal("850.00")),
+            ("Transporte",   Decimal("500.00")),
+            ("Restaurantes", Decimal("500.00")),
+            ("Compras",      Decimal("500.00")),
+            ("Lazer",        Decimal("170.00")),
+            ("Contas",       Decimal("400.00")),
             ("Assinaturas",  Decimal("200.00")),
-            ("Saúde",        Decimal("800.00")),
-            ("Viagem",       Decimal("2000.00")),
+            ("Saúde",        Decimal("270.00")),
+            ("Viagem",       Decimal("700.00")),
         ]
         budget_months: list[date] = []
         cursor = today.replace(day=1)

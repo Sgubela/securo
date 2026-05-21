@@ -116,7 +116,7 @@ export function AppLayout() {
   const [chatOpen, setChatOpen] = useState(false)
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
   useCommandPaletteHotkey(setPaletteOpen)
-  const { agentsEnabled } = useFeatureFlags()
+  const { agentsEnabled, demoMode } = useFeatureFlags()
   // ⌘J / Ctrl+J toggles the global slide-over chat from anywhere.
   // Distinct from ⌘K (command palette) so users can have both open.
   // Gated on agentsEnabled so the hotkey is a no-op when the feature is
@@ -137,7 +137,13 @@ export function AppLayout() {
   // a configuration surface (KB upload, providers, default selection),
   // not a daily destination. Moved to the user menu (Change password,
   // 2FA, Backups, AI agents).
-  const finalNavItems: NavItem[] = navItems
+  //
+  // In demo mode we hide Import — uploads survive only until the hourly
+  // reset (confusing UX) and the unbounded parse would let a visitor
+  // crash the worker with a giant CSV.
+  const finalNavItems: NavItem[] = demoMode
+    ? navItems.filter((item) => item.type === 'separator' || item.key !== 'import')
+    : navItems
   const isMac =
     typeof navigator !== 'undefined' &&
     /Mac|iPhone|iPad|iPod/.test(navigator.platform)
@@ -184,7 +190,10 @@ export function AppLayout() {
   return (
     <div className="min-h-screen bg-background">
       {/* Mobile header */}
-      <header className="sticky top-0 z-40 flex h-14 items-center gap-3 bg-sidebar border-b border-sidebar-border px-4 lg:hidden">
+      <header className={cn(
+        'sticky z-40 flex h-14 items-center gap-3 bg-sidebar border-b border-sidebar-border px-4 lg:hidden',
+        demoMode ? 'top-7' : 'top-0',
+      )}>
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
           className="text-sidebar-muted hover:text-sidebar-foreground transition-colors"
@@ -278,7 +287,8 @@ export function AppLayout() {
         {/* Sidebar */}
         <aside
           className={cn(
-            'fixed inset-y-0 left-0 z-50 w-60 bg-sidebar border-r border-sidebar-border flex flex-col transform transition-transform lg:translate-x-0 shrink-0',
+            'fixed left-0 bottom-0 z-50 w-60 bg-sidebar border-r border-sidebar-border flex flex-col transform transition-transform lg:translate-x-0 shrink-0',
+            demoMode ? 'top-7' : 'top-0',
             sidebarOpen ? 'translate-x-0' : '-translate-x-full',
           )}
         >

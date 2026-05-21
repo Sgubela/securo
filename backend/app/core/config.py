@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     # Registration
     registration_enabled: bool = True
 
+    # Demo
+    # Enables a public-demo profile: skips outbound market-price calls
+    # (Yahoo) so a multi-user demo doesn't trip bot heuristics, and the
+    # frontend renders a "data resets hourly" banner. Pair with the
+    # scripts/reset_demo.sh cron.
+    demo_mode: bool = False
+
     # Celery
     redis_url: str = "redis://localhost:6379/0"
 

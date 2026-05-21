@@ -881,6 +881,9 @@
     "typePerson": "Pessoa",
     "typeCompany": "Empresa"
   },
+  "demo": {
+    "banner": "Demo público — os dados são apagados a cada hora. Não cadastre nada que você não compartilharia."
+  },
   "common": {
     "save": "Salvar",
     "cancel": "Cancelar",

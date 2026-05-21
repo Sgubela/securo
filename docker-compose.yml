@@ -13,6 +13,8 @@ x-backend-env: &backend-env
   FX_SYNC_MODE: ${FX_SYNC_MODE:-on_demand}
   STORAGE_LOCAL_PATH: /app/data/attachments
   AGENTS_KNOWLEDGE_STORAGE_PATH: /app/data/agent_knowledge
+  # Public-demo profile. Pair with scripts/reset_demo.sh on a cron.
+  DEMO_MODE: ${DEMO_MODE:-false}
   # Agents/LLM feature — opt-in. Off by default so existing users pay
   # zero cost. Run `docker compose --profile agents up` after enabling.
   AGENTS_ENABLED: ${AGENTS_ENABLED:-false}

@@ -973,12 +973,16 @@ export const search = {
 
 // App-level feature flags (whether optional modules like agents are mounted)
 export interface AppInfo {
-  features: { agents: boolean }
+  features: { agents: boolean; demo?: boolean }
 }
 
 export const info = {
   get: async (): Promise<AppInfo> => {
     const { data } = await api.get('/info')
+    return data
+  },
+  demoLogin: async (): Promise<{ access_token: string }> => {
+    const { data } = await api.post('/auth/demo-login')
     return data
   },
 }

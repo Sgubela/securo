@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { auth } from '@/lib/api'
+import { auth, info } from '@/lib/api'
 import type { User } from '@/types'
 
 interface LoginResult {
@@ -38,8 +38,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
         .finally(() => setIsLoading(false))
     } else {
-      setUser(null)
-      setIsLoading(false)
+      // Demo mode: mint a JWT for the seeded demo user so visitors land
+      // straight on the dashboard. /api/info reports demo=true only when
+      // DEMO_MODE is on; the endpoint 404s otherwise so this is a no-op
+      // for self-hosted users.
+      info.get()
+        .then(({ features }) => {
+          if (!features?.demo) {
+            setUser(null)
+            setIsLoading(false)
+            return
+          }
+          return info.demoLogin().then(({ access_token }) => {
+            localStorage.setItem('token', access_token)
+            setToken(access_token)
+          })
+        })
+        .catch(() => {
+          setUser(null)
+          setIsLoading(false)
+        })
     }
   }, [token])
 

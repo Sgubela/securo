@@ -881,6 +881,9 @@
     "typePerson": "Person",
     "typeCompany": "Company"
   },
+  "demo": {
+    "banner": "Public demo — data resets every hour. Don't enter anything you wouldn't share."
+  },
   "common": {
     "save": "Save",
     "cancel": "Cancel",

@@ -16,6 +16,8 @@ interface WorkspaceContextType {
   role: WorkspaceRole | null
   /** True for owner OR manager (the manager has effective owner rights). */
   canManage: boolean
+  /** True for owner, manager, OR editor — anyone allowed to mutate financial data. */
+  canWrite: boolean
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | null>(null)
@@ -90,6 +92,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const role = current?.role ?? null
   const canManage = role === 'owner' || role === 'manager'
+  const canWrite = role === 'owner' || role === 'manager' || role === 'editor'
 
   return (
     <WorkspaceContext.Provider
@@ -101,6 +104,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         refresh: loadWorkspaces,
         role,
         canManage,
+        canWrite,
       }}
     >
       {children}

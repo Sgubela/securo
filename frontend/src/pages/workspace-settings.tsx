@@ -244,7 +244,7 @@ export default function WorkspaceSettingsPage() {
     <div className="container max-w-5xl py-8 space-y-6">
       {/* Header card — identity + role + stats strip */}
       <section className="rounded-xl border bg-card overflow-hidden">
-        <div className="p-6 flex items-start gap-5 border-b">
+        <div className="p-6 flex items-center gap-5 border-b">
           <CategoryIcon
             icon={current.icon ?? DEFAULT_WORKSPACE_ICON}
             color={current.color ?? DEFAULT_WORKSPACE_COLOR}

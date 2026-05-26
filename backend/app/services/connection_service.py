@@ -1293,7 +1293,7 @@ async def delete_connection(
         )
         await session.execute(
             delete(Payee).where(
-                Payee.user_id == user_id,
+                Payee.workspace_id == workspace_id,
                 Payee.id.in_(affected_payee_ids),
                 ~has_transactions,
                 ~has_external_mappings,

@@ -13,7 +13,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.models.user import User
-from app.models.workspace import Workspace, WorkspaceMember
+from app.models.workspace import Workspace
 from app.services import workspace_service
 
 

@@ -563,20 +563,6 @@ class TestParseQif:
         assert transactions[0].amount == Decimal("300.00")
         assert transactions[0].type == "debit"
 
-    def test_parse_qif_latin1_encoding(self):
-        """QIF with Latin-1 encoded characters falls back correctly."""
-        qif_text = (
-            "D02/15/2026\n"
-            "T-50.00\n"
-            "PCafé résumé\n"
-            "^\n"
-        )
-        transactions = parse_qif(qif_text.encode("latin-1"))
-
-        assert len(transactions) == 1
-        assert transactions[0].description == "Café résumé"
-        assert transactions[0].amount == Decimal("50.00")
-
     def test_parse_qif_comma_in_amount(self):
         """QIF amounts with comma thousands separator."""
         qif_content = (

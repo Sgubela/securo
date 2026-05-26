@@ -2,11 +2,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
-from app.models.bank_connection import BankConnection
 from app.models.group import Group, GroupMember
 from app.models.group_settlement import GroupSettlement
 from app.models.transaction import Transaction

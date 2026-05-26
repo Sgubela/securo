@@ -4,9 +4,6 @@ from typing import Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
-from app.models.workspace import WORKSPACE_KINDS, WORKSPACE_ROLES
-
-
 class WorkspaceRead(BaseModel):
     id: uuid.UUID
     name: str

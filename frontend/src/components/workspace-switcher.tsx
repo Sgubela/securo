@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { workspaces as workspacesApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -13,7 +14,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuPortal,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
@@ -24,7 +29,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Check, ChevronsUpDown, Plus, Settings } from 'lucide-react'
+import {
+  Check,
+  ChevronsUpDown,
+  Download,
+  HardDriveDownload,
+  KeyRound,
+  Languages,
+  LogOut,
+  Plus,
+  Settings,
+  Shield,
+  ShieldCheck,
+  Sparkles,
+} from 'lucide-react'
 import { CategoryIcon } from '@/components/category-icon'
 import type { Workspace } from '@/types'
 
@@ -51,12 +69,46 @@ function workspaceColor(w: Workspace): string {
   return w.color || DEFAULT_COLOR
 }
 
-export function WorkspaceSwitcher() {
-  const { t } = useTranslation()
+interface AccountMenuProps {
+  /** Backup download in progress — disables the menu item. */
+  backingUp: boolean
+  /** Open the change-password dialog. */
+  onChangePassword: () => void
+  /** Open the 2FA setup dialog. */
+  onTwoFactor: () => void
+  /** Trigger a backup download. */
+  onBackup: () => void
+  /** Open the "Update available" dialog. */
+  onUpdateAvailable: () => void
+  /** True when the AGENTS_ENABLED env flag is on. */
+  agentsEnabled: boolean
+}
+
+/**
+ * Unified account menu: workspace identity on the trigger, all
+ * workspace + account actions in one dropdown. Replaces the previous
+ * standalone workspace switcher + separate user dropdown.
+ *
+ * Dialogs (change password, 2FA, update available) stay owned by the
+ * parent layout — they're shared with other surfaces and the menu
+ * only needs to trigger them.
+ */
+export function WorkspaceSwitcher({
+  backingUp,
+  onChangePassword,
+  onTwoFactor,
+  onBackup,
+  onUpdateAvailable,
+  agentsEnabled,
+}: AccountMenuProps) {
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const { current, workspaces, switchWorkspace, refresh } = useWorkspace()
+  const { user, logout } = useAuth()
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
+
+  const currentLang = i18n.language?.startsWith('pt') ? 'pt-BR' : 'en'
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -80,34 +132,10 @@ export function WorkspaceSwitcher() {
     },
   })
 
-  if (!current) return null
+  if (!current || !user) return null
 
-  const showSwitcher = workspaces.length > 1
-
-  // Single-workspace users get a static label that just opens the settings
-  // page on click. Multi-workspace users get the full dropdown.
-  if (!showSwitcher) {
-    return (
-      <button
-        onClick={() => navigate('/workspace/settings')}
-        className="flex items-center gap-3 w-full rounded-lg px-3 py-2.5 text-sm hover:bg-sidebar-accent transition-colors text-left"
-      >
-        <CategoryIcon
-          icon={workspaceIcon(current)}
-          color={workspaceColor(current)}
-          size="sm"
-          className="shrink-0"
-        />
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold truncate">{current.name}</p>
-          <p className="text-[10px] text-sidebar-muted/70 truncate">
-            {current.role && ROLE_BADGE[current.role]}
-          </p>
-        </div>
-        <Settings size={13} className="text-sidebar-muted/60 shrink-0" />
-      </button>
-    )
-  }
+  const hasMultipleWorkspaces = workspaces.length > 1
+  const roleLabel = current.role ? ROLE_BADGE[current.role] : null
 
   return (
     <>
@@ -123,56 +151,164 @@ export function WorkspaceSwitcher() {
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold truncate">{current.name}</p>
               <p className="text-[10px] text-sidebar-muted/70 truncate">
-                {current.role && ROLE_BADGE[current.role]}
+                {user.email}
+                {roleLabel && (
+                  <span className="ml-1 uppercase tracking-wide">· {roleLabel}</span>
+                )}
               </p>
             </div>
             <ChevronsUpDown size={13} className="text-sidebar-muted/60 shrink-0" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-60" side="top">
-          <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
-            {t('workspace.switcherTitle', 'Switch workspace')}
-          </DropdownMenuLabel>
-          {workspaces.map((w) => {
-            const isActive = w.id === current.id
-            return (
-              <DropdownMenuItem
-                key={w.id}
-                onClick={() => void switchWorkspace(w.id)}
-                className="flex items-center gap-2"
-              >
-                <CategoryIcon
-                  icon={workspaceIcon(w)}
-                  color={workspaceColor(w)}
-                  size="sm"
-                  className="shrink-0"
-                />
-                <span className="flex-1 truncate">{w.name}</span>
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  {w.role && ROLE_BADGE[w.role]}
-                </span>
-                {isActive && <Check size={12} className="text-primary ml-1" />}
-              </DropdownMenuItem>
-            )
-          })}
-          <DropdownMenuSeparator />
+        <DropdownMenuContent align="start" className="w-64" side="top">
+          {/* Workspaces — only show the switcher list when there's more than one. */}
+          {hasMultipleWorkspaces && (
+            <>
+              <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
+                {t('workspace.switcherTitle', 'Switch workspace')}
+              </DropdownMenuLabel>
+              {workspaces.map((w) => {
+                const isActive = w.id === current.id
+                return (
+                  <DropdownMenuItem
+                    key={w.id}
+                    onClick={() => void switchWorkspace(w.id)}
+                    className="flex items-center gap-2"
+                  >
+                    <CategoryIcon
+                      icon={workspaceIcon(w)}
+                      color={workspaceColor(w)}
+                      size="sm"
+                      className="shrink-0"
+                    />
+                    <span className="flex-1 truncate">{w.name}</span>
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      {w.role && ROLE_BADGE[w.role]}
+                    </span>
+                    {isActive && <Check size={12} className="text-primary ml-1" />}
+                  </DropdownMenuItem>
+                )
+              })}
+              <DropdownMenuSeparator />
+            </>
+          )}
+
+          {/* Workspace actions */}
           <DropdownMenuItem
             onClick={() => navigate('/workspace/settings')}
             className="flex items-center gap-2"
           >
-            <Settings size={13} />
+            <Settings size={14} />
             <span className="flex-1">{t('workspace.settingsMenu', 'Workspace settings')}</span>
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => setCreateOpen(true)}
             className="flex items-center gap-2"
           >
-            <Plus size={13} />
+            <Plus size={14} />
             <span className="flex-1">{t('workspace.create', 'New workspace')}</span>
+          </DropdownMenuItem>
+
+          <DropdownMenuSeparator />
+
+          {/* Admin */}
+          {user.is_superuser && (
+            <DropdownMenuItem
+              onClick={() => navigate('/admin')}
+              className="flex items-center gap-2"
+            >
+              <Shield size={14} />
+              {t('nav.groupAdmin')}
+            </DropdownMenuItem>
+          )}
+
+          {/* Account actions */}
+          <DropdownMenuItem
+            onClick={onChangePassword}
+            className="flex items-center gap-2"
+          >
+            <KeyRound size={14} />
+            {t('auth.changePassword')}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={onTwoFactor}
+            className="flex items-center gap-2"
+          >
+            <ShieldCheck size={14} />
+            {t('auth.twoFactorTitle')}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={backingUp}
+            onClick={onBackup}
+            className="flex items-center gap-2"
+          >
+            <HardDriveDownload size={14} />
+            {backingUp ? t('backup.downloading') : t('backup.button')}
+          </DropdownMenuItem>
+
+          {agentsEnabled && (
+            <DropdownMenuItem
+              onClick={() => navigate('/agents')}
+              className="flex items-center gap-2"
+            >
+              <Sparkles size={14} />
+              {t('nav.aiAgents')}
+            </DropdownMenuItem>
+          )}
+
+          <DropdownMenuItem
+            onClick={onUpdateAvailable}
+            className="flex items-center gap-2"
+          >
+            <Download size={14} />
+            {t('update.menuItem')}
+          </DropdownMenuItem>
+
+          {/* Language sub-menu */}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="flex items-center gap-2">
+              <Languages size={14} />
+              <span className="flex-1">{t('setup.language')}</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {currentLang === 'pt-BR' ? 'PT' : 'EN'}
+              </span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuPortal>
+              <DropdownMenuSubContent className="w-40">
+                <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
+                  {t('setup.language')}
+                </DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={() => i18n.changeLanguage('pt-BR')}
+                  className="flex items-center gap-2"
+                >
+                  <span className="flex-1">Português</span>
+                  {currentLang === 'pt-BR' && <Check size={13} className="text-primary" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => i18n.changeLanguage('en')}
+                  className="flex items-center gap-2"
+                >
+                  <span className="flex-1">English</span>
+                  {currentLang === 'en' && <Check size={13} className="text-primary" />}
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuPortal>
+          </DropdownMenuSub>
+
+          <DropdownMenuSeparator />
+
+          <DropdownMenuItem
+            onClick={logout}
+            className="flex items-center gap-2 text-rose-600 focus:text-rose-600"
+          >
+            <LogOut size={14} />
+            {t('auth.logout')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {/* New workspace dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>

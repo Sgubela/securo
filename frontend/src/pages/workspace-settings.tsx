@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { workspaces as workspacesApi } from '@/lib/api'
+import { currencies as currenciesApi, workspaces as workspacesApi } from '@/lib/api'
 import { useAuth } from '@/contexts/auth-context'
 import { useWorkspace } from '@/contexts/workspace-context'
 import { Button } from '@/components/ui/button'
@@ -41,16 +41,6 @@ function hintForRole(role: WorkspaceRole, t: (key: string) => string): string {
   }[role]
 }
 
-function labelForKind(kind: string, t: (key: string) => string): string {
-  const map: Record<string, string> = {
-    personal: t('workspace.kindPersonal'),
-    freelancer: t('workspace.kindFreelancer'),
-    small_business: t('workspace.kindSmallBusiness'),
-    accountant_firm: t('workspace.kindAccountantFirm'),
-  }
-  return map[kind] || kind
-}
-
 export default function WorkspaceSettingsPage() {
   const { t, i18n } = useTranslation()
   const { current, canManage, refresh } = useWorkspace()
@@ -77,6 +67,12 @@ export default function WorkspaceSettingsPage() {
     queryKey: ['workspace-members', current?.id],
     queryFn: () => (current ? workspacesApi.listMembers(current.id) : Promise.resolve([])),
     enabled: !!current,
+  })
+
+  const { data: supportedCurrencies } = useQuery({
+    queryKey: ['currencies'],
+    queryFn: currenciesApi.list,
+    staleTime: Infinity,
   })
 
   const updateMutation = useMutation({
@@ -213,29 +209,22 @@ export default function WorkspaceSettingsPage() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="ws-kind" className="text-[13px]">
-              {t('workspace.kind')}
-            </Label>
-            <Input
-              id="ws-kind"
-              value={labelForKind(current.kind, t)}
-              disabled
-              className="h-10 rounded-lg"
-            />
-          </div>
-          <div className="space-y-1.5">
             <Label htmlFor="ws-currency" className="text-[13px]">
               {t('workspace.defaultCurrency')}
             </Label>
-            <Input
+            <select
               id="ws-currency"
               value={editCurrency}
-              onChange={(e) => setEditCurrency(e.target.value.toUpperCase())}
+              onChange={(e) => setEditCurrency(e.target.value)}
               disabled={!canManage}
-              maxLength={3}
-              placeholder="USD"
-              className="h-10 rounded-lg uppercase"
-            />
+              className="w-full h-10 rounded-lg border border-input bg-background px-3 text-sm disabled:opacity-60"
+            >
+              {(supportedCurrencies ?? [{ code: editCurrency, symbol: editCurrency, name: editCurrency, flag: '' }]).map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.flag} {c.name}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="ws-locale" className="text-[13px]">

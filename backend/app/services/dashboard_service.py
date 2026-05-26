@@ -149,7 +149,12 @@ async def get_summary(
     # Subtract non-owner shares of the user's own split txs — they paid
     # for the others, so those amounts aren't their actual cost.
     own_offset_inc, own_offset_exp = await owner_split_offset_pnl(
-        session, user_id, month_start, month_end, use_effective_date=False
+        session,
+        user_id,
+        month_start,
+        month_end,
+        use_effective_date=False,
+        workspace_id=workspace_id,
     )
     monthly_income -= own_offset_inc
     monthly_expenses -= own_offset_exp
@@ -260,6 +265,7 @@ async def get_summary(
         month_end,
         use_effective_date=False,
         primary_currency=primary_currency,
+        workspace_id=workspace_id,
     )
     monthly_income_primary -= own_offset_inc_pri
     monthly_expenses_primary -= own_offset_exp_pri
@@ -272,7 +278,8 @@ async def get_summary(
     from app.models.transaction_split import TransactionSplit
 
     viewer_member_ids = select(GroupMember.id).where(
-        GroupMember.linked_user_id == user_id
+        GroupMember.linked_user_id == user_id,
+        GroupMember.is_self.is_(False),
     )
     shared_currency_rows = await session.execute(
         select(
@@ -332,7 +339,7 @@ async def get_summary(
     # participate in. We reuse the group balance computation so partial
     # settlements are already netted out.
     pending_shares_net = await _compute_pending_shares_net(
-        session, user_id, primary_currency
+        session, workspace_id, user_id, primary_currency
     )
 
     return DashboardSummary(
@@ -354,7 +361,10 @@ async def get_summary(
 
 
 async def _compute_pending_shares_net(
-    session: AsyncSession, user_id: uuid.UUID, primary_currency: str
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    primary_currency: str,
 ) -> float:
     """Sum, in primary currency, the user's net position across every
     group they belong to.
@@ -369,23 +379,31 @@ async def _compute_pending_shares_net(
     from app.models.group import Group, GroupMember
     from app.services.balance_service import compute_balances
 
-    # All groups the user can see (owned + linked-as-member).
+    # Scope to groups that live in the CURRENT workspace (where the
+    # user is the creator) PLUS groups they're a linked member of from
+    # other workspaces (cross-workspace projection). Drop `is_self`
+    # links — those are the user's own self-member in their own group,
+    # already accounted for by the workspace-scoped path.
     owned_q = await session.execute(
-        select(Group.id).where(Group.user_id == user_id)
+        select(Group.id).where(
+            Group.user_id == user_id,
+            Group.workspace_id == workspace_id,
+        )
     )
     owned_ids = {row[0] for row in owned_q.all()}
     linked_q = await session.execute(
         select(GroupMember.group_id, GroupMember.id).where(
-            GroupMember.linked_user_id == user_id
+            GroupMember.linked_user_id == user_id,
+            GroupMember.is_self.is_(False),
         )
     )
     linked_rows = list(linked_q.all())
-    linked_ids = {row.group_id for row in linked_rows}
+    linked_ids = {row.group_id for row in linked_rows} - owned_ids
     member_id_for_group = {row.group_id: row.id for row in linked_rows}
 
     total_primary = 0.0
     for gid in owned_ids | linked_ids:
-        balances = await compute_balances(session, gid, user_id)
+        balances = await compute_balances(session, gid, workspace_id, user_id)
         if not balances:
             continue
         for line in balances["lines"]:
@@ -472,6 +490,7 @@ async def get_spending_by_category(
         month_end,
         use_effective_date=accounting_mode == "accrual",
         primary_currency=primary_currency,
+        workspace_id=workspace_id,
     )
     for cat_uuid, offset_total in owner_offset.items():
         cat_id = str(cat_uuid) if cat_uuid else None
@@ -625,6 +644,7 @@ async def get_monthly_trend(
             session, user_id, m_start, m_end,
             use_effective_date=accounting_mode == "accrual",
             primary_currency=primary_currency,
+            workspace_id=workspace_id,
         )
         shared_inc, shared_exp = await viewer_shared_pnl(
             session, user_id, m_start, m_end,

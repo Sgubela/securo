@@ -106,7 +106,7 @@ async def get_transactions(
     if group_id is not None:
         from app.services.group_service import get_group_visible
 
-        accessible = await get_group_visible(session, group_id, user_id)
+        accessible = await get_group_visible(session, group_id, workspace_id, user_id)
         if accessible is None:
             return [], 0
         use_group_scope = True
@@ -154,23 +154,34 @@ async def get_transactions(
         )
         base_query = base_query.where(Transaction.id.in_(tx_ids_subq))
     else:
-        # Default scope: transactions in this workspace PLUS transactions
-        # shared with the viewer via group splits. Workspace membership
-        # already handled by the workspace_id filter; the union with
-        # shared rows surfaces the viewer's `Concert Tickets · share $90`
-        # alongside their own expenses even when the parent tx lives in
-        # someone else's workspace. Account-balance integrity is preserved
-        # because the transaction's account_id still belongs to the
-        # original owner.
+        # Default scope: transactions in this workspace PLUS cross-workspace
+        # shares the viewer participates in. The union surfaces the
+        # viewer's "Concert Tickets · share $90" from another workspace
+        # alongside their own expenses; account-balance integrity is
+        # preserved because the parent tx's account still belongs to the
+        # original owner. The shared-id subquery EXCLUDES rows already
+        # in this workspace — otherwise self-membership in an
+        # in-workspace group double-surfaces the owner's own
+        # transactions when they switch to another workspace.
         from app.models.group import GroupMember
         from app.models.transaction_split import TransactionSplit
 
+        # Exclude is_self memberships — those represent the viewer's
+        # OWN self-member in groups they created, not invitations from
+        # someone else's workspace. Without this exclusion, the owner's
+        # own transactions get double-projected when they switch into
+        # a different workspace.
         viewer_member_ids = select(GroupMember.id).where(
-            GroupMember.linked_user_id == user_id
+            GroupMember.linked_user_id == user_id,
+            GroupMember.is_self.is_(False),
         )
         shared_tx_ids = (
             select(TransactionSplit.transaction_id)
-            .where(TransactionSplit.group_member_id.in_(viewer_member_ids))
+            .join(Transaction, Transaction.id == TransactionSplit.transaction_id)
+            .where(
+                TransactionSplit.group_member_id.in_(viewer_member_ids),
+                Transaction.workspace_id != workspace_id,
+            )
             .distinct()
         )
         base_query = base_query.where(
@@ -471,7 +482,8 @@ async def _tag_shared_view(
 
     member_rows = await session.execute(
         select(GroupMember.id, GroupMember.group_id).where(
-            GroupMember.linked_user_id == user_id
+            GroupMember.linked_user_id == user_id,
+            GroupMember.is_self.is_(False),
         )
     )
     member_to_group = {row.id: row.group_id for row in member_rows}

@@ -99,7 +99,8 @@ async def search_all(
     from app.models.transaction_split import TransactionSplit
 
     viewer_member_ids = select(GroupMember.id).where(
-        GroupMember.linked_user_id == user_id
+        GroupMember.linked_user_id == user_id,
+        GroupMember.is_self.is_(False),
     )
     shared_tx_ids = (
         select(TransactionSplit.transaction_id)

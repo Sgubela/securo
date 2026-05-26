@@ -69,10 +69,18 @@ def _visible_predicate(workspace_id: uuid.UUID, user_id: uuid.UUID):
       - the requesting user is linked as a member from outside the
         workspace (cross-workspace settlement projection — the Splitwise
         case where Adam invites Eve from her own workspace).
+
+    `is_self` memberships are EXCLUDED from the cross-workspace
+    projection: those represent the group's owner, who should see the
+    group only in the workspace where it lives — not in every other
+    workspace they belong to.
     """
     member_groups = (
         select(GroupMember.group_id)
-        .where(GroupMember.linked_user_id == user_id)
+        .where(
+            GroupMember.linked_user_id == user_id,
+            GroupMember.is_self.is_(False),
+        )
         .distinct()
     )
     return or_(Group.workspace_id == workspace_id, Group.id.in_(member_groups))

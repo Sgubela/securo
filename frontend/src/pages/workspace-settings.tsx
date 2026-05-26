@@ -297,15 +297,16 @@ export default function WorkspaceSettingsPage() {
           )}
         </div>
         <div className="space-y-4">
-          {/* Identity row — icon button + color swatch tucked tightly
-              against the name input so they read as one unit. */}
-          <div className="space-y-1.5">
-            <Label htmlFor="ws-name" className="text-[13px]">
-              {t('workspace.name')}
-            </Label>
-            <div className="flex items-stretch gap-2">
-              {canManage ? (
-                <>
+          {/* Identity row — icon button + color swatch align with the
+              input (not the label) so the label sits over the name
+              field only. */}
+          <div className="flex items-end gap-2">
+            {canManage ? (
+              <>
+                <div className="space-y-1.5">
+                  <Label className="text-[13px]">
+                    {t('workspace.icon', 'Ícone')}
+                  </Label>
                   <Popover>
                     <PopoverTrigger asChild>
                       <button
@@ -320,26 +321,37 @@ export default function WorkspaceSettingsPage() {
                       <IconPicker value={editIcon} color={editColor} onChange={setEditIcon} />
                     </PopoverContent>
                   </Popover>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="ws-color" className="text-[13px]">
+                    {t('groups.color', 'Cor')}
+                  </Label>
                   <input
+                    id="ws-color"
                     type="color"
                     value={editColor}
                     onChange={(e) => setEditColor(e.target.value)}
                     className="h-10 w-10 p-1 rounded-lg cursor-pointer border border-input bg-background shrink-0"
                     title={t('groups.color', 'Cor')}
                   />
-                </>
-              ) : (
-                <div className="h-10 w-10 rounded-lg flex items-center justify-center shrink-0">
-                  <CategoryIcon icon={editIcon} color={editColor} size="sm" />
                 </div>
-              )}
+              </>
+            ) : (
+              <div className="h-10 w-10 rounded-lg flex items-center justify-center shrink-0">
+                <CategoryIcon icon={editIcon} color={editColor} size="sm" />
+              </div>
+            )}
+            <div className="space-y-1.5 flex-1">
+              <Label htmlFor="ws-name" className="text-[13px]">
+                {t('workspace.name')}
+              </Label>
               <Input
                 id="ws-name"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 disabled={!canManage}
                 maxLength={100}
-                className="h-10 rounded-lg flex-1"
+                className="h-10 rounded-lg w-full"
               />
             </div>
           </div>
@@ -484,14 +496,16 @@ export default function WorkspaceSettingsPage() {
 
       {/* Danger zone — owners only */}
       {canManage && (
-        <section className="space-y-4 rounded-xl border border-destructive/30 bg-destructive/5 p-6">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-destructive" />
-            <h2 className="text-base font-semibold text-destructive">
-              {t('workspace.dangerZone', 'Zona de perigo')}
-            </h2>
+        <section className="space-y-4 rounded-xl border bg-card p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+              <h2 className="text-base font-semibold">
+                {t('workspace.dangerZone', 'Zona de perigo')}
+              </h2>
+            </div>
           </div>
-          <div className="flex items-center justify-between gap-4 rounded-lg border border-destructive/30 bg-background p-4">
+          <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-medium">
                 {t('workspace.archiveAction', 'Arquivar workspace')}
@@ -505,7 +519,8 @@ export default function WorkspaceSettingsPage() {
             </div>
             <Button
               variant="outline"
-              className="rounded-lg border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              size="sm"
+              className="rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
               onClick={() => setArchiveOpen(true)}
             >
               <Archive className="mr-2 h-4 w-4" />

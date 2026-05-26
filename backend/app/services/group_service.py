@@ -37,7 +37,16 @@ def _tag_member_self(
     requesting user rather than the stored flag (which only marks the
     owner's own member). Falls back to the stored flag for an owner
     whose self-member isn't linked to a Securo account.
+
+    Uses `set_committed_value` rather than a plain attribute assignment:
+    a plain assignment dirties the row, and the next session commit
+    would persist this per-request view as if it were the canonical
+    truth. The set_committed_value call updates the in-memory attribute
+    (so Pydantic from_attributes still sees the overridden value) but
+    leaves the row clean.
     """
+    from sqlalchemy.orm.attributes import set_committed_value
+
     is_linked_to_caller = (
         member.linked_user_id is not None and member.linked_user_id == user_id
     )
@@ -46,7 +55,7 @@ def _tag_member_self(
         and member.linked_user_id is None
         and bool(member.is_self)
     )
-    member.is_self = is_linked_to_caller or is_owner_self_unlinked
+    set_committed_value(member, "is_self", is_linked_to_caller or is_owner_self_unlinked)
     return member
 
 

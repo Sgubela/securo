@@ -74,10 +74,22 @@ from app.agents.models import (  # noqa: E402,F401
     LlmUsage,
 )
 
-# Use SQLite for tests — fast, no external dependency
-TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
+# Use SQLite for tests — fast, no external dependency.
+# Keep the DB file off the bind-mounted project dir (macOS bind mounts
+# have known SQLite locking/journal quirks under aiosqlite) — /tmp is a
+# tmpfs inside the container. StaticPool + a single shared connection
+# is required so async fixtures and tests running on the shared
+# session-scoped event loop see the same in-memory schema state.
+from sqlalchemy.pool import StaticPool  # noqa: E402
 
-engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
+engine = create_async_engine(
+    TEST_DATABASE_URL,
+    echo=False,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
 TestSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -87,14 +99,7 @@ TestSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_com
 # UUID comparisons.
 
 
-@pytest_asyncio.fixture(scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest_asyncio.fixture(scope="session", autouse=True)
+@pytest_asyncio.fixture(scope="session", loop_scope="session", autouse=True)
 async def setup_database():
     """Create all tables once for the test session."""
     async with engine.begin() as conn:
@@ -105,7 +110,7 @@ async def setup_database():
     # Clean up test db file
     import os
     try:
-        os.remove("./test.db")
+        os.remove("/tmp/securo_test.db")
     except FileNotFoundError:
         pass
 

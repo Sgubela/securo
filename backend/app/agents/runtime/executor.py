@@ -368,7 +368,9 @@ class AgentExecutor:
                 from app.models.user import User
                 user = await session.get(User, user_id)
                 if user is not None:
-                    primer = await context_service.build_context_primer(session, user)
+                    primer = await context_service.build_context_primer(
+                        session, user, workspace_id=agent.workspace_id
+                    )
                     if primer:
                         messages.append(ChatMessage(role="system", content=primer))
             except Exception:  # noqa: BLE001

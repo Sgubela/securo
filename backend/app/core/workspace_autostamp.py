@@ -21,19 +21,22 @@ from sqlalchemy.orm import Mapper, Session
 from app.models.account import Account
 from app.models.asset import Asset
 from app.models.asset_group import AssetGroup
+from app.models.asset_value import AssetValue
 from app.models.bank_connection import BankConnection
 from app.models.budget import Budget
 from app.models.category import Category
 from app.models.category_group import CategoryGroup
 from app.models.credit_card_bill import CreditCardBill
 from app.models.goal import Goal
-from app.models.group import Group
+from app.models.group import Group, GroupMember
+from app.models.group_settlement import GroupSettlement
 from app.models.import_log import ImportLog
 from app.models.payee import Payee, PayeeMapping
 from app.models.recurring_transaction import RecurringTransaction
 from app.models.rule import Rule
 from app.models.transaction import Transaction
 from app.models.transaction_attachment import TransactionAttachment
+from app.models.transaction_split import TransactionSplit
 from app.models.workspace import Workspace, WorkspaceMember
 
 
@@ -41,6 +44,7 @@ _AUTOSTAMP_MODELS = (
     Account,
     Asset,
     AssetGroup,
+    AssetValue,
     BankConnection,
     Budget,
     Category,
@@ -48,6 +52,8 @@ _AUTOSTAMP_MODELS = (
     CreditCardBill,
     Goal,
     Group,
+    GroupMember,
+    GroupSettlement,
     ImportLog,
     Payee,
     PayeeMapping,
@@ -55,7 +61,20 @@ _AUTOSTAMP_MODELS = (
     Rule,
     Transaction,
     TransactionAttachment,
+    TransactionSplit,
 )
+
+
+def _register_agent_models() -> tuple:
+    """Optional Agent + Conversation models: register only when the agents
+    feature is enabled (the modules are import-gated by AGENTS_ENABLED)."""
+    try:
+        from app.agents.models.agent import Agent
+        from app.agents.models.conversation import Conversation
+
+        return (Agent, Conversation)
+    except Exception:
+        return ()
 
 
 def _cache_key(session: Session, user_id: uuid.UUID) -> str:
@@ -88,6 +107,7 @@ _PARENT_LOOKUPS: tuple[tuple[str, str], ...] = (
     ("asset_id", "app.models.asset:Asset"),
     ("group_id", "app.models.group:Group"),
     ("transaction_id", "app.models.transaction:Transaction"),
+    ("agent_id", "app.agents.models.agent:Agent"),
 )
 
 
@@ -151,7 +171,7 @@ def _before_insert(mapper: Mapper, connection: Any, target: Any) -> None:
 
 def install_workspace_autostamp() -> None:
     """Idempotent: register the listener on each model exactly once."""
-    for model in _AUTOSTAMP_MODELS:
+    for model in _AUTOSTAMP_MODELS + _register_agent_models():
         if not event.contains(model, "before_insert", _before_insert):
             event.listen(model, "before_insert", _before_insert)
 

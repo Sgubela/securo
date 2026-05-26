@@ -932,6 +932,8 @@ async def test_update_transaction_rejects_foreign_account(
     from app.models.user import User
     import bcrypt as _bcrypt
 
+    from app.services.workspace_service import create_personal_workspace_for_user
+
     other_user = User(
         id=uuid.uuid4(),
         email="other@example.com",
@@ -939,8 +941,11 @@ async def test_update_transaction_rejects_foreign_account(
         is_active=True, is_superuser=False, is_verified=True,
     )
     session.add(other_user)
+    await session.commit()
+    other_ws = await create_personal_workspace_for_user(session, other_user)
+    await session.commit()
     foreign_account = Account(
-        id=uuid.uuid4(), user_id=other_user.id, name="ForeignAcc",
+        id=uuid.uuid4(), user_id=other_user.id, workspace_id=other_ws.id, name="ForeignAcc",
         type="checking", balance=Decimal("0"), currency="BRL",
     )
     session.add(foreign_account)

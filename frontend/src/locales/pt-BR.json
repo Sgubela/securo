@@ -972,6 +972,8 @@
     "delete": "Excluir",
     "edit": "Editar",
     "back": "Voltar",
+    "name": "Nome",
+    "create": "Criar",
     "loading": "Carregando...",
     "error": "Erro",
     "success": "Sucesso",

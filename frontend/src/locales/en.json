@@ -972,6 +972,8 @@
     "delete": "Delete",
     "edit": "Edit",
     "back": "Back",
+    "name": "Name",
+    "create": "Create",
     "loading": "Loading...",
     "error": "Error",
     "success": "Success",

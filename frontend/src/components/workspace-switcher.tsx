@@ -46,11 +46,11 @@ import {
 import { CategoryIcon } from '@/components/category-icon'
 import type { Workspace } from '@/types'
 
-const ROLE_BADGE: Record<string, string> = {
-  owner: 'owner',
-  editor: 'editor',
-  viewer: 'viewer',
-  manager: 'manager',
+const ROLE_LABEL_KEY: Record<string, string> = {
+  owner: 'workspace.roleOwner',
+  editor: 'workspace.roleEditor',
+  viewer: 'workspace.roleViewer',
+  manager: 'workspace.roleManager',
 }
 
 // Fallbacks when a workspace hasn't set its own icon/color yet.
@@ -135,7 +135,9 @@ export function WorkspaceSwitcher({
   if (!current || !user) return null
 
   const hasMultipleWorkspaces = workspaces.length > 1
-  const roleLabel = current.role ? ROLE_BADGE[current.role] : null
+  const roleLabel = current.role && ROLE_LABEL_KEY[current.role]
+    ? t(ROLE_LABEL_KEY[current.role])
+    : null
 
   return (
     <>
@@ -183,7 +185,7 @@ export function WorkspaceSwitcher({
                     />
                     <span className="flex-1 truncate">{w.name}</span>
                     <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                      {w.role && ROLE_BADGE[w.role]}
+                      {w.role && ROLE_LABEL_KEY[w.role] && t(ROLE_LABEL_KEY[w.role])}
                     </span>
                     {isActive && <Check size={12} className="text-primary ml-1" />}
                   </DropdownMenuItem>

@@ -50,6 +50,7 @@ import {
 import { PageHeader } from '@/components/page-header'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
+import { useWorkspace } from '@/contexts/workspace-context'
 
 function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   try {
@@ -172,6 +173,7 @@ export default function AssetsPage() {
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
+  const { canWrite } = useWorkspace()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const queryClient = useQueryClient()
 
@@ -707,34 +709,38 @@ export default function AssetsPage() {
             )}
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            <button
-              onClick={(e) => { e.stopPropagation(); setMovingAsset(asset) }}
-              title={t('assets.moveToWallet')}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            >
-              <FolderInput size={14} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); if (!isProviderOwned) openEdit(asset) }}
-              disabled={isProviderOwned}
-              title={isProviderOwned ? t('assets.syncedReadOnly') : undefined}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-            >
-              <Pencil size={14} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); if (!isProviderOwned) setDeletingId(asset.id) }}
-              disabled={isProviderOwned}
-              title={isProviderOwned ? t('assets.syncedReadOnly') : undefined}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-            >
-              <Trash2 size={14} />
-            </button>
+            {canWrite && (
+              <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setMovingAsset(asset) }}
+                  title={t('assets.moveToWallet')}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  <FolderInput size={14} />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); if (!isProviderOwned) openEdit(asset) }}
+                  disabled={isProviderOwned}
+                  title={isProviderOwned ? t('assets.syncedReadOnly') : undefined}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); if (!isProviderOwned) setDeletingId(asset.id) }}
+                  disabled={isProviderOwned}
+                  title={isProviderOwned ? t('assets.syncedReadOnly') : undefined}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </>
+            )}
             {isExpanded ? <ChevronUp size={16} className="text-muted-foreground" /> : <ChevronDown size={16} className="text-muted-foreground" />}
           </div>
         </div>
 
-        {isExpanded && <AssetDetail assetId={asset.id} currency={asset.currency} locale={locale} purchasePrice={asset.purchase_price} purchaseDate={asset.purchase_date} valuationMethod={asset.valuation_method} />}
+        {isExpanded && <AssetDetail assetId={asset.id} currency={asset.currency} locale={locale} purchasePrice={asset.purchase_price} purchaseDate={asset.purchase_date} valuationMethod={asset.valuation_method} canWrite={canWrite} />}
       </div>
     )
   }
@@ -841,21 +847,25 @@ export default function AssetsPage() {
           <span className="text-sm font-bold tabular-nums text-foreground shrink-0">
             {mask(formatCurrency(total, userCurrency, locale))}
           </span>
-          <button
-            onClick={() => openEditWallet(wallet)}
-            className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            title={t('assets.editWallet')}
-          >
-            <Pencil size={12} />
-          </button>
-          {!isSynced && (
-            <button
-              onClick={() => setDeletingWalletId(wallet.id)}
-              className="p-1 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-50 transition-colors"
-              title={t('assets.deleteWallet')}
-            >
-              <Trash2 size={12} />
-            </button>
+          {canWrite && (
+            <>
+              <button
+                onClick={() => openEditWallet(wallet)}
+                className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title={t('assets.editWallet')}
+              >
+                <Pencil size={12} />
+              </button>
+              {!isSynced && (
+                <button
+                  onClick={() => setDeletingWalletId(wallet.id)}
+                  className="p-1 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                  title={t('assets.deleteWallet')}
+                >
+                  <Trash2 size={12} />
+                </button>
+              )}
+            </>
           )}
         </div>
         {!isCollapsed && walletAssets.length > 0 && (
@@ -878,16 +888,18 @@ export default function AssetsPage() {
         section={t('assets.title')}
         title={t('assets.title')}
         action={
-          <div className="flex items-center gap-2">
-            <Button onClick={openCreateWallet} variant="outline" className="gap-1.5">
-              <Wallet size={16} />
-              {t('assets.newWallet')}
-            </Button>
-            <Button onClick={openCreate} className="gap-1.5">
-              <Plus size={16} />
-              {t('assets.addAsset')}
-            </Button>
-          </div>
+          canWrite ? (
+            <div className="flex items-center gap-2">
+              <Button onClick={openCreateWallet} variant="outline" className="gap-1.5">
+                <Wallet size={16} />
+                {t('assets.newWallet')}
+              </Button>
+              <Button onClick={openCreate} className="gap-1.5">
+                <Plus size={16} />
+                {t('assets.addAsset')}
+              </Button>
+            </div>
+          ) : undefined
         }
       />
 
@@ -1561,6 +1573,15 @@ function PortfolioChart({ data, wallets, currency, locale: loc, mask }: {
 
     return { series: s, displayTrend: newTrend }
   }, [mode, data, wallets, t])
+  const sortedSeries = useMemo(() => {
+    const lastRow = displayTrend[displayTrend.length - 1]
+    if (!lastRow) return series
+    return [...series].sort((a, b) => {
+      const av = Math.abs((lastRow[a.key] as number) ?? 0)
+      const bv = Math.abs((lastRow[b.key] as number) ?? 0)
+      return bv - av || a.name.localeCompare(b.name)
+    })
+  }, [series, displayTrend])
 
   return (
     <div className="border border-border rounded-xl bg-card shadow-sm p-5">
@@ -1593,7 +1614,7 @@ function PortfolioChart({ data, wallets, currency, locale: loc, mask }: {
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={displayTrend} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
             <defs>
-              {series.map(s => (
+              {sortedSeries.map(s => (
                 <linearGradient key={s.key} id={`portfolio-grad-${s.key}`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={s.color} stopOpacity={0.5} />
                   <stop offset="100%" stopColor={s.color} stopOpacity={0.1} />
@@ -1618,16 +1639,14 @@ function PortfolioChart({ data, wallets, currency, locale: loc, mask }: {
             <RechartsTooltip
               content={({ active, payload, label }) => {
                 if (!active || !payload?.length) return null
-                const totalEntry = payload.find(p => p.dataKey === '_total')
-                const dateTotal = totalEntry?.value as number ?? 0
-                const items = series
+                const row = displayTrend.find(r => r.date === label)
+                const dateTotal = row ? ((row._total as number) ?? 0) : 0
+                const items = sortedSeries
                   .map(s => {
-                    const row = displayTrend.find(r => r.date === label)
                     const val = row ? ((row[s.key] as number) ?? 0) : 0
                     return { key: s.key, name: s.name, value: val, color: s.color }
                   })
                   .filter(item => item.value !== 0)
-                  .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
                 if (items.length === 0) return null
                 return (
                   <div style={{ background: 'var(--card)', color: 'var(--foreground)', border: '1px solid var(--border)', borderRadius: '0.75rem', fontSize: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', padding: '10px 12px' }}>
@@ -1652,7 +1671,7 @@ function PortfolioChart({ data, wallets, currency, locale: loc, mask }: {
               }}
             />
             {/* Stacked areas — one colored band per series */}
-            {series.map(s => (
+            {sortedSeries.map(s => (
               <Area
                 key={s.key}
                 type="monotone"
@@ -1672,7 +1691,7 @@ function PortfolioChart({ data, wallets, currency, locale: loc, mask }: {
       </div>
       {/* Legend */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 px-1">
-        {series.map(s => (
+        {sortedSeries.map(s => (
           <div key={s.key} className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }} />
             <span className="text-[11px] text-muted-foreground">{s.name}</span>
@@ -1683,10 +1702,11 @@ function PortfolioChart({ data, wallets, currency, locale: loc, mask }: {
   )
 }
 
-function AssetDetail({ assetId, currency, locale: loc, purchasePrice, purchaseDate, valuationMethod }: {
+function AssetDetail({ assetId, currency, locale: loc, purchasePrice, purchaseDate, valuationMethod, canWrite }: {
   assetId: string; currency: string; locale: string
   purchasePrice: number | null; purchaseDate: string | null
   valuationMethod: string
+  canWrite: boolean
 }) {
   const { t } = useTranslation()
   const { mask } = usePrivacyMode()
@@ -1836,7 +1856,7 @@ function AssetDetail({ assetId, currency, locale: loc, purchasePrice, purchaseDa
       )}
 
       {/* Add Value Form — only for manual assets */}
-      {valuationMethod === 'manual' && <div className="flex items-end gap-2">
+      {valuationMethod === 'manual' && canWrite && <div className="flex items-end gap-2">
         <div className="flex-1">
           <Label className="text-[11px] text-muted-foreground">{t('assets.amount')}</Label>
           <Input
@@ -1905,7 +1925,7 @@ function AssetDetail({ assetId, currency, locale: loc, purchasePrice, purchaseDa
                     <span className="text-[11px] text-muted-foreground tabular-nums">
                       {new Date(v.date + 'T00:00:00').toLocaleDateString(loc)}
                     </span>
-                    {valuationMethod === 'manual' && v.source === 'manual' && (
+                    {valuationMethod === 'manual' && v.source === 'manual' && canWrite && (
                       <button
                         onClick={() => deleteValueMutation.mutate(v.id)}
                         className="p-1 rounded text-muted-foreground/40 hover:text-rose-600 transition-colors"

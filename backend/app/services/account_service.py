@@ -13,13 +13,14 @@ from app.models.transaction import Transaction
 from app.schemas.account import AccountCreate, AccountUpdate
 from app.services._query_filters import counts_as_pnl
 from app.services.credit_card_service import apply_effective_date, compute_available_credit, get_cycle_dates
+from app.models.category import Category
 
 
 def get_account_name(account: Account) -> str:
     return account.display_name or account.name
 
 
-async def get_accounts(session: AsyncSession, user_id: uuid.UUID, include_closed: bool = False) -> list[dict]:
+async def get_accounts(session: AsyncSession, workspace_id: uuid.UUID, include_closed: bool = False) -> list[dict]:
     # Subquery: compute current_balance per account from transactions in one pass
     # Use amount_primary only when tx currency differs from account currency
     # (converts foreign txs to account's reporting currency)
@@ -38,6 +39,14 @@ async def get_accounts(session: AsyncSession, user_id: uuid.UUID, include_closed
             func.coalesce(func.sum(signed_amount), 0).label("current_balance"),
         )
         .join(Account, Transaction.account_id == Account.id)
+        .outerjoin(Category, Transaction.category_id == Category.id)
+        .where(
+            Transaction.is_ignored == False,
+            or_(
+                Transaction.category_id.is_(None),
+                Category.is_ignored == False,
+            ),
+        )
         .group_by(Transaction.account_id)
         .subquery()
     )
@@ -52,8 +61,15 @@ async def get_accounts(session: AsyncSession, user_id: uuid.UUID, include_closed
             Transaction.account_id,
             func.coalesce(func.sum(signed_amount), 0).label("previous_balance"),
         )
-        .join(Account, Transaction.account_id == Account.id)
-        .where(Transaction.date <= prev_month_end)
+        .outerjoin(Category, Transaction.category_id == Category.id)
+        .where(
+            Transaction.date <= prev_month_end,
+            Transaction.is_ignored == False,
+            or_(
+                Transaction.category_id.is_(None),
+                Category.is_ignored == False,
+            ),
+        )
         .group_by(Transaction.account_id)
         .subquery()
     )
@@ -70,8 +86,8 @@ async def get_accounts(session: AsyncSession, user_id: uuid.UUID, include_closed
         .outerjoin(prev_balance_sq, Account.id == prev_balance_sq.c.account_id)
         .where(
             or_(
-                Account.user_id == user_id,
-                BankConnection.user_id == user_id,
+                Account.workspace_id == workspace_id,
+                BankConnection.workspace_id == workspace_id,
             )
         )
     )
@@ -79,11 +95,10 @@ async def get_accounts(session: AsyncSession, user_id: uuid.UUID, include_closed
         query = query.where(Account.is_closed == False)
     query = query.order_by(Account.name)
     result = await session.execute(query)
-
     return [
-        serialize_account(acc, current_balance, previous_balance)
-        for acc, current_balance, previous_balance in result.all()
-    ]
+            serialize_account(acc, current_balance, previous_balance)
+            for acc, current_balance, previous_balance in result.all()
+        ]
 
 
 def serialize_account(
@@ -136,7 +151,7 @@ def serialize_account(
 async def get_credit_card_bills(
     session: AsyncSession,
     account_id: uuid.UUID,
-    user_id: uuid.UUID,
+    workspace_id: uuid.UUID,
     *,
     limit: int = 24,
 ) -> Optional[list[CreditCardBill]]:
@@ -147,7 +162,7 @@ async def get_credit_card_bills(
     accounts with no synced bills — the read path then keeps using the
     cycle-math fallback.
     """
-    account = await get_account(session, account_id, user_id)
+    account = await get_account(session, account_id, workspace_id)
     if account is None:
         return None
     if account.type != "credit_card":
@@ -161,25 +176,31 @@ async def get_credit_card_bills(
     return list(result.scalars().all())
 
 
-async def get_account(session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID) -> Optional[Account]:
+async def get_account(session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID) -> Optional[Account]:
     result = await session.execute(
         select(Account)
         .outerjoin(BankConnection)
         .where(
             Account.id == account_id,
             or_(
-                Account.user_id == user_id,
-                BankConnection.user_id == user_id,
+                Account.workspace_id == workspace_id,
+                BankConnection.workspace_id == workspace_id,
             ),
         )
     )
     return result.scalar_one_or_none()
 
 
-async def create_account(session: AsyncSession, user_id: uuid.UUID, data: AccountCreate) -> Account:
+async def create_account(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    data: AccountCreate,
+) -> Account:
     is_cc = data.type == "credit_card"
     account = Account(
         user_id=user_id,
+        workspace_id=workspace_id,
         name=data.name,
         type=data.type,
         balance=data.balance,
@@ -200,6 +221,7 @@ async def create_account(session: AsyncSession, user_id: uuid.UUID, data: Accoun
         opening_type = "debit" if data.type == "credit_card" else "credit"
         opening_tx = Transaction(
             user_id=user_id,
+            workspace_id=workspace_id,
             account_id=account.id,
             description="Saldo inicial",
             amount=data.balance,
@@ -217,9 +239,9 @@ async def create_account(session: AsyncSession, user_id: uuid.UUID, data: Accoun
 
 
 async def update_account(
-    session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID, data: AccountUpdate
+    session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID, data: AccountUpdate
 ) -> Optional[Account]:
-    account = await get_account(session, account_id, user_id)
+    account = await get_account(session, account_id, workspace_id)
     if not account:
         return None
 
@@ -294,6 +316,7 @@ async def update_account(
             else:
                 opening_tx = Transaction(
                     user_id=account.user_id,
+                    workspace_id=account.workspace_id,
                     account_id=account_id,
                     description="Saldo inicial",
                     amount=new_balance,
@@ -410,6 +433,7 @@ async def sync_opening_balance_for_connected_account(
     else:
         opening_tx = Transaction(
             user_id=account.user_id,
+            workspace_id=account.workspace_id,
             account_id=account.id,
             description="Saldo inicial",
             amount=amount,
@@ -423,8 +447,8 @@ async def sync_opening_balance_for_connected_account(
     await session.flush()
 
 
-async def delete_account(session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID) -> bool:
-    account = await get_account(session, account_id, user_id)
+async def delete_account(session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID) -> bool:
+    account = await get_account(session, account_id, workspace_id)
     if not account:
         return False
 
@@ -478,9 +502,9 @@ async def delete_account(session: AsyncSession, account_id: uuid.UUID, user_id: 
 
 
 async def close_account(
-    session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID
+    session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> Optional[Account]:
-    account = await get_account(session, account_id, user_id)
+    account = await get_account(session, account_id, workspace_id)
     if not account:
         return None
     if account.is_closed:
@@ -502,9 +526,9 @@ async def close_account(
 
 
 async def reopen_account(
-    session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID
+    session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> Optional[Account]:
-    account = await get_account(session, account_id, user_id)
+    account = await get_account(session, account_id, workspace_id)
     if not account:
         return None
     if not account.is_closed:
@@ -519,12 +543,12 @@ async def reopen_account(
 
 
 async def get_account_summary(
-    session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID,
+    session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID,
     date_from: Optional[_Date] = None, date_to: Optional[_Date] = None,
     bill_id: Optional[uuid.UUID] = None,
     unbilled_only: bool = False,
 ) -> Optional[dict]:
-    account = await get_account(session, account_id, user_id)
+    account = await get_account(session, account_id, workspace_id)
     if not account:
         return None
 
@@ -556,7 +580,16 @@ async def get_account_summary(
                     ),
                     0,
                 )
-            ).where(Transaction.account_id == account_id)
+            ).where(
+                Transaction.account_id == account_id,
+                Transaction.is_ignored == False,
+                or_(
+                    Transaction.category_id.is_(None),
+                    Transaction.category_id.not_in(
+                        select(Category.id).where(Category.is_ignored == True)
+                    ),
+                ),
+            )
         )
         current_balance = float(balance_result.scalar())
 
@@ -698,12 +731,19 @@ async def _account_balance_at(
     session: AsyncSession, account_id: uuid.UUID, cutoff: _Date,
     account_currency: str = "",
 ) -> float:
-    """Get balance for a single account at a specific date."""
+    """Get balance for a single account at a specific date.
+    Excludes ignored transactions from the balance calculation."""
     result = await session.execute(
         select(func.coalesce(func.sum(_signed_amount_expr(account_currency)), 0))
+        .outerjoin(Category, Transaction.category_id == Category.id)
         .where(
             Transaction.account_id == account_id,
             Transaction.date <= cutoff,
+            Transaction.is_ignored == False,
+            or_(
+                Transaction.category_id.is_(None),
+                Category.is_ignored == False,
+            ),
         )
     )
     return float(result.scalar() or 0)
@@ -714,20 +754,28 @@ async def _account_daily_balance_series(
     date_from: _Date, date_to: _Date,
     account_currency: str = "",
 ) -> list[dict]:
-    """Build daily balance series for [date_from, date_to] inclusive."""
+    """Build daily balance series for [date_from, date_to] inclusive.
+    Excludes ignored transactions from balance calculations."""
     # Get balance at end of day before range start
     start_balance = await _account_balance_at(session, account_id, date_from - timedelta(days=1), account_currency)
 
     # Get daily deltas within range: group by actual date
+    # Exclude ignored transactions from daily deltas
     result = await session.execute(
         select(
             Transaction.date,
             func.sum(_signed_amount_expr(account_currency)),
         )
+        .outerjoin(Category, Transaction.category_id == Category.id)
         .where(
             Transaction.account_id == account_id,
             Transaction.date >= date_from,
             Transaction.date <= date_to,
+            Transaction.is_ignored == False,
+            or_(
+                Transaction.category_id.is_(None),
+                Category.is_ignored == False,
+            ),
         )
         .group_by(Transaction.date)
     )
@@ -746,10 +794,10 @@ async def _account_daily_balance_series(
 
 
 async def get_account_balance_history(
-    session: AsyncSession, account_id: uuid.UUID, user_id: uuid.UUID,
+    session: AsyncSession, account_id: uuid.UUID, workspace_id: uuid.UUID,
     date_from: Optional[_Date] = None, date_to: Optional[_Date] = None,
 ) -> Optional[list[dict]]:
-    account = await get_account(session, account_id, user_id)
+    account = await get_account(session, account_id, workspace_id)
     if not account:
         return None
 

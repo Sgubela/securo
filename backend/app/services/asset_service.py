@@ -162,6 +162,80 @@ async def _get_latest_value(session: AsyncSession, asset_id: uuid.UUID) -> Optio
     return result.scalar_one_or_none()
 
 
+async def _get_value_as_of(
+    session: AsyncSession, asset_id: uuid.UUID, as_of_date: date
+) -> Optional[AssetValue]:
+    """Get the most recent AssetValue for an asset on or before as_of_date."""
+    result = await session.execute(
+        select(AssetValue)
+        .where(AssetValue.asset_id == asset_id, AssetValue.date <= as_of_date)
+        .order_by(desc(AssetValue.date), desc(AssetValue.id))
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _load_asset_native_values(
+    session: AsyncSession,
+    assets: list[Asset],
+    up_to_date: Optional[date] = None,
+) -> dict[str, list[tuple[date, float]]]:
+    """Bulk-load AssetValue rows for all assets in one query.
+
+    Returns {aid: [(date, amount), ...]} sorted ascending by (date, id).
+    When purchase_price and purchase_date are both set and purchase_date
+    predates the first recorded value, it is prepended as the earliest anchor.
+    """
+    if not assets:
+        return {}
+
+    asset_ids = [a.id for a in assets]
+    q = (
+        select(AssetValue.asset_id, AssetValue.date, AssetValue.amount)
+        .where(AssetValue.asset_id.in_(asset_ids))
+        .order_by(AssetValue.asset_id, AssetValue.date, AssetValue.id)
+    )
+    if up_to_date is not None:
+        q = q.where(AssetValue.date <= up_to_date)
+
+    rows = (await session.execute(q)).all()
+
+    values_map: dict[str, list[tuple[date, float]]] = {str(a.id): [] for a in assets}
+    for aid, d, amt in rows:
+        values_map[str(aid)].append((d, float(amt)))
+
+    for asset in assets:
+        aid = str(asset.id)
+        vals = values_map[aid]
+        if asset.purchase_price is not None and asset.purchase_date is not None:
+            if not vals or asset.purchase_date < vals[0][0]:
+                vals.insert(0, (asset.purchase_date, float(asset.purchase_price)))
+
+    return values_map
+
+
+def _fill_forward_at(
+    asset: Asset,
+    sorted_vals: list[tuple[date, float]],
+    as_of: date,
+) -> Optional[float]:
+    """Return the fill-forwarded native value of asset at as_of, or None.
+
+    Scans sorted_vals for the latest entry on or before as_of. Falls back
+    to purchase_price when purchase_date is None (asset predates any known
+    date) and no value history is available for the requested date.
+    """
+    result = None
+    for d, v in sorted_vals:
+        if d <= as_of:
+            result = v
+        else:
+            break
+    if result is None and asset.purchase_price is not None and asset.purchase_date is None:
+        result = float(asset.purchase_price)
+    return result
+
+
 async def _get_value_count(session: AsyncSession, asset_id: uuid.UUID) -> int:
     """Get the number of AssetValue entries for an asset."""
     result = await session.scalar(
@@ -171,10 +245,10 @@ async def _get_value_count(session: AsyncSession, asset_id: uuid.UUID) -> int:
 
 
 async def get_assets(
-    session: AsyncSession, user_id: uuid.UUID, include_archived: bool = False
+    session: AsyncSession, workspace_id: uuid.UUID, include_archived: bool = False
 ) -> list[AssetRead]:
-    """List all assets for a user with computed current_value."""
-    query = select(Asset).where(Asset.user_id == user_id)
+    """List all assets in a workspace with computed current_value."""
+    query = select(Asset).where(Asset.workspace_id == workspace_id)
     if not include_archived:
         query = query.where(Asset.is_archived == False)
     query = query.order_by(Asset.position, Asset.name)
@@ -191,11 +265,11 @@ async def get_assets(
 
 
 async def get_asset(
-    session: AsyncSession, asset_id: uuid.UUID, user_id: uuid.UUID
+    session: AsyncSession, asset_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> Optional[AssetRead]:
     """Get a single asset with computed fields."""
     result = await session.execute(
-        select(Asset).where(Asset.id == asset_id, Asset.user_id == user_id)
+        select(Asset).where(Asset.id == asset_id, Asset.workspace_id == workspace_id)
     )
     asset = result.scalar_one_or_none()
     if not asset:
@@ -207,6 +281,7 @@ async def get_asset(
 
 async def create_asset(
     session: AsyncSession,
+    workspace_id: uuid.UUID,
     user_id: uuid.UUID,
     data: AssetCreate,
     *,
@@ -238,6 +313,7 @@ async def create_asset(
 
     asset = Asset(
         user_id=user_id,
+        workspace_id=workspace_id,
         name=data.name,
         type=data.type,
         # For market_price, the quote's currency is authoritative — a user
@@ -332,12 +408,16 @@ async def create_asset(
 
 
 async def update_asset(
-    session: AsyncSession, asset_id: uuid.UUID, user_id: uuid.UUID, data: AssetUpdate,
+    session: AsyncSession,
+    asset_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    data: AssetUpdate,
     regenerate_growth: bool = False,
 ) -> Optional[AssetRead]:
     """Partial update of an asset."""
     result = await session.execute(
-        select(Asset).where(Asset.id == asset_id, Asset.user_id == user_id)
+        select(Asset).where(Asset.id == asset_id, Asset.workspace_id == workspace_id)
     )
     asset = result.scalar_one_or_none()
     if not asset:
@@ -411,11 +491,11 @@ async def update_asset(
 
 
 async def delete_asset(
-    session: AsyncSession, asset_id: uuid.UUID, user_id: uuid.UUID
+    session: AsyncSession, asset_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> bool:
     """Delete an asset (cascades to values)."""
     result = await session.execute(
-        select(Asset).where(Asset.id == asset_id, Asset.user_id == user_id)
+        select(Asset).where(Asset.id == asset_id, Asset.workspace_id == workspace_id)
     )
     asset = result.scalar_one_or_none()
     if not asset:
@@ -426,12 +506,12 @@ async def delete_asset(
 
 
 async def get_asset_values(
-    session: AsyncSession, asset_id: uuid.UUID, user_id: uuid.UUID
+    session: AsyncSession, asset_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> Optional[list[AssetValueRead]]:
     """Get value history for an asset, most recent first."""
     # Verify ownership
     owner_check = await session.execute(
-        select(Asset.id).where(Asset.id == asset_id, Asset.user_id == user_id)
+        select(Asset.id).where(Asset.id == asset_id, Asset.workspace_id == workspace_id)
     )
     if not owner_check.scalar_one_or_none():
         return None
@@ -446,12 +526,12 @@ async def get_asset_values(
 
 
 async def add_asset_value(
-    session: AsyncSession, asset_id: uuid.UUID, user_id: uuid.UUID, data: AssetValueCreate
+    session: AsyncSession, asset_id: uuid.UUID, workspace_id: uuid.UUID, data: AssetValueCreate
 ) -> Optional[AssetValueRead]:
     """Add a new value entry for an asset."""
     # Verify ownership
     owner_check = await session.execute(
-        select(Asset.id).where(Asset.id == asset_id, Asset.user_id == user_id)
+        select(Asset.id).where(Asset.id == asset_id, Asset.workspace_id == workspace_id)
     )
     if not owner_check.scalar_one_or_none():
         return None
@@ -469,13 +549,13 @@ async def add_asset_value(
 
 
 async def delete_asset_value(
-    session: AsyncSession, value_id: uuid.UUID, user_id: uuid.UUID
+    session: AsyncSession, value_id: uuid.UUID, workspace_id: uuid.UUID
 ) -> bool:
     """Delete a specific asset value entry."""
     result = await session.execute(
         select(AssetValue)
         .join(Asset, AssetValue.asset_id == Asset.id)
-        .where(AssetValue.id == value_id, Asset.user_id == user_id)
+        .where(AssetValue.id == value_id, Asset.workspace_id == workspace_id)
     )
     value = result.scalar_one_or_none()
     if not value:
@@ -486,12 +566,12 @@ async def delete_asset_value(
 
 
 async def get_asset_value_trend(
-    session: AsyncSession, asset_id: uuid.UUID, user_id: uuid.UUID, months: int = 12
+    session: AsyncSession, asset_id: uuid.UUID, workspace_id: uuid.UUID, months: int = 12
 ) -> Optional[list[dict]]:
     """Get value trend data for charting."""
     # Verify ownership
     owner_check = await session.execute(
-        select(Asset.id).where(Asset.id == asset_id, Asset.user_id == user_id)
+        select(Asset.id).where(Asset.id == asset_id, Asset.workspace_id == workspace_id)
     )
     if not owner_check.scalar_one_or_none():
         return None
@@ -506,16 +586,23 @@ async def get_asset_value_trend(
 
 
 async def get_portfolio_trend(
-    session: AsyncSession, user_id: uuid.UUID
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    user_id: Optional[uuid.UUID] = None,
 ) -> dict:
     """Get portfolio trend data for stacked area chart.
     Returns asset metadata + pivoted trend with fill-forward values.
     Sold assets are included so their pre-sell history still contributes
     to the historical total; their contribution drops to 0 the day after
-    sell_date."""
+    sell_date.
+
+    `user_id` is only used to resolve the user's primary_currency for the
+    chart's converted totals; it falls back to the workspace's default when
+    not supplied.
+    """
     result = await session.execute(
         select(Asset).where(
-            Asset.user_id == user_id,
+            Asset.workspace_id == workspace_id,
             Asset.is_archived == False,
         ).order_by(Asset.position, Asset.name)
     )
@@ -524,15 +611,16 @@ async def get_portfolio_trend(
     if not active_assets:
         return {"assets": [], "trend": [], "total": 0.0}
 
-    # Collect all values per asset and all unique dates
+    # Get user's primary currency for conversion
+    user = await session.get(User, user_id) if user_id is not None else None
+    primary_currency = user.primary_currency if user else get_settings().default_currency
+
+    values_map = await _load_asset_native_values(session, active_assets)
+
     asset_meta = []
-    asset_values_map: dict[str, list[tuple[date, float]]] = {}
+    asset_currency: dict[str, str] = {}
     sell_date_by_aid: dict[str, date] = {}
     all_dates: set[date] = set()
-
-    # Get user's primary currency for conversion
-    user = await session.get(User, user_id)
-    primary_currency = user.primary_currency if user else get_settings().default_currency
 
     for asset in active_assets:
         aid = str(asset.id)
@@ -542,18 +630,9 @@ async def get_portfolio_trend(
             "type": asset.type,
             "group_id": str(asset.group_id) if asset.group_id else None,
         })
+        asset_currency[aid] = asset.currency
 
-        rows = await session.execute(
-            select(AssetValue.date, AssetValue.amount)
-            .where(AssetValue.asset_id == asset.id)
-            .order_by(AssetValue.date)
-        )
-        vals = [(r[0], float(r[1])) for r in rows.all()]
-
-        # Prepend purchase_price as the first data point if it predates existing values
-        if asset.purchase_price is not None and asset.purchase_date is not None:
-            if not vals or asset.purchase_date < vals[0][0]:
-                vals.insert(0, (asset.purchase_date, float(asset.purchase_price)))
+        vals = values_map[aid]
 
         # If the asset was sold and a sell_price is recorded, treat it as the
         # asset's terminal value on sell_date so the chart reflects the
@@ -564,23 +643,8 @@ async def get_portfolio_trend(
                 vals = [(d, v) for d, v in vals if d <= asset.sell_date]
                 if not vals or vals[-1][0] != asset.sell_date:
                     vals.append((asset.sell_date, float(asset.sell_price)))
+                values_map[aid] = vals
 
-        # Convert every value to the primary currency at its own date so the
-        # stacked areas and the tooltip total are all in the same unit. Before
-        # this, a USD-quoted asset like AAPL contributed its raw $ value to
-        # `_total`, making the tooltip disagree with the header (which does
-        # FX-convert). `convert` falls back to the nearest available rate, so
-        # dates missing exact FX data still produce a sensible number.
-        if asset.currency != primary_currency:
-            converted_vals: list[tuple[date, float]] = []
-            for d, amt in vals:
-                converted, _ = await convert(
-                    session, Decimal(str(amt)), asset.currency, primary_currency, d,
-                )
-                converted_vals.append((d, float(converted)))
-            vals = converted_vals
-
-        asset_values_map[aid] = vals
         for d, _ in vals:
             all_dates.add(d)
 
@@ -593,13 +657,16 @@ async def get_portfolio_trend(
     value_lookup: dict[str, dict[date, float]] = {}
     first_date: dict[str, date] = {}
     for aid in [a["id"] for a in asset_meta]:
-        value_lookup[aid] = {d: v for d, v in asset_values_map[aid]}
-        if asset_values_map[aid]:
-            first_date[aid] = asset_values_map[aid][0][0]
+        value_lookup[aid] = dict(values_map[aid])
+        if values_map[aid]:
+            first_date[aid] = values_map[aid][0][0]
 
-    # Build trend with fill-forward; 0 before first date (for stacking)
+    # Build trend with fill-forward; 0 before first date (for stacking).
+    # Each native-currency amount is converted at the display date `d` so that
+    # fill-forwarded values reflect current FX rates — consistent with
+    # get_asset_values_at(as_of_date=d).
     trend = []
-    last_known: dict[str, float] = {}
+    last_known: dict[str, float] = {}  # native currency amounts
     for aid in [a["id"] for a in asset_meta]:
         last_known[aid] = 0.0
 
@@ -611,36 +678,63 @@ async def get_portfolio_trend(
                 last_known[aid] = value_lookup[aid][d]
             # Use 0 before asset exists (stacking needs numeric values)
             if aid in first_date and d >= first_date[aid]:
-                val = round(last_known[aid], 2)
+                native = last_known[aid]
             else:
-                val = 0
+                native = 0.0
             # After sell_date, the asset has been liquidated — drop to 0 so
             # it stops contributing to the portfolio total going forward.
             if aid in sell_date_by_aid and d > sell_date_by_aid[aid]:
-                val = 0
+                native = 0.0
                 last_known[aid] = 0.0
+
+            # Convert native amount to primary currency at this display date
+            currency = asset_currency[aid]
+            if native != 0.0 and currency != primary_currency:
+                converted, _ = await convert(
+                    session, Decimal(str(native)), currency, primary_currency, d
+                )
+                val = round(float(converted), 2)
+            else:
+                val = round(native, 2)
+
             row[aid] = val
             date_total += val
         row["_total"] = round(date_total, 2)
         trend.append(row)
 
-    # `last_known` already holds primary-currency values (we converted per-date
-    # above when building asset_values_map). Summing directly keeps the header
-    # total in lockstep with the tooltip's `_total` on the final row — any
-    # second conversion here would double-count for non-primary assets.
-    total = sum(last_known.values())
+    # The header total matches the last row's _total — both use the same
+    # per-display-date conversion so no second conversion is needed.
+    total = trend[-1]["_total"] if trend else 0.0
 
     return {"assets": asset_meta, "trend": trend, "total": round(total, 2)}
 
 
-async def get_total_asset_value(
-    session: AsyncSession, user_id: uuid.UUID
-) -> dict[str, float]:
-    """Get total asset value grouped by currency (for dashboard).
-    Only includes non-archived assets that haven't been sold."""
+async def get_asset_values_at(
+    session: AsyncSession,
+    scope_id: uuid.UUID,
+    as_of_date: Optional[date] = None,
+    primary_currency: Optional[str] = None,
+    *,
+    by_workspace: bool = False,
+) -> tuple[dict[str, float], float]:
+    """Return (per_currency_totals, primary_total) for all active assets.
+
+    `scope_id` is a workspace_id when `by_workspace=True` (preferred for
+    multi-tenant code paths), otherwise treated as a legacy user_id
+    filter. Both branches honor the `is_archived=False` + `sell_date is None`
+    filters.
+
+    - as_of_date=None: uses live prices (current view).
+    - as_of_date set: uses the latest AssetValue on or before that date,
+      falling back to purchase_price only if the asset existed by that date.
+    - primary_currency=None: primary_total is 0.0.
+    """
+    scope_filter = (
+        Asset.workspace_id == scope_id if by_workspace else Asset.user_id == scope_id
+    )
     result = await session.execute(
         select(Asset).where(
-            Asset.user_id == user_id,
+            scope_filter,
             Asset.is_archived == False,
             Asset.sell_date.is_(None),
         )
@@ -648,12 +742,30 @@ async def get_total_asset_value(
     assets = list(result.scalars().all())
 
     totals: dict[str, float] = {}
+    primary_total = 0.0
+
+    if as_of_date is not None:
+        values_map = await _load_asset_native_values(session, assets, up_to_date=as_of_date)
+
     for asset in assets:
-        latest = await _get_latest_value(session, asset.id)
-        current = _compute_current_value(asset, latest)
-        if current is not None:
-            totals[asset.currency] = totals.get(asset.currency, 0.0) + current
-    return totals
+        if as_of_date is not None:
+            amount: Optional[float] = _fill_forward_at(asset, values_map[str(asset.id)], as_of_date)
+        else:
+            latest = await _get_latest_value(session, asset.id)
+            amount = _compute_current_value(asset, latest)
+
+        if not amount:
+            continue
+
+        totals[asset.currency] = totals.get(asset.currency, 0.0) + amount
+
+        if primary_currency is not None:
+            converted, _ = await convert(
+                session, Decimal(str(amount)), asset.currency, primary_currency, as_of_date
+            )
+            primary_total += float(converted)
+
+    return totals, primary_total
 
 
 # ============================================================================

@@ -17,6 +17,7 @@ import { PageHeader } from '@/components/page-header'
 import { ImportSummaryBar } from '@/components/import-summary-bar'
 import { ImportReviewTable } from '@/components/import-review-table'
 import { useAuth } from '@/contexts/auth-context'
+import { useWorkspace } from '@/contexts/workspace-context'
 
 const TYPE_LABELS: Record<string, string> = {
   checking: 'accounts.typeChecking',
@@ -52,6 +53,7 @@ export default function ImportPage() {
   // Disabled in demo mode — uploads survive only until the hourly reset
   // and the unbounded parser would let a visitor crash the worker.
   if (demoMode) return <Navigate to="/" replace />
+  const { canWrite } = useWorkspace()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const queryClient = useQueryClient()
@@ -281,7 +283,7 @@ export default function ImportPage() {
       <PageHeader section={t('import.title')} title={t('import.subtitle')} />
 
       {/* Upload zone */}
-      <div
+      {canWrite && <div
         className={`bg-card rounded-xl border-2 border-dashed transition-all cursor-pointer ${
           dragOver ? 'border-primary bg-primary/5' : 'border-border hover:border-border'
         }`}
@@ -352,7 +354,7 @@ export default function ImportPage() {
             </>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* Review section */}
       {previewData && (
@@ -616,13 +618,15 @@ export default function ImportPage() {
                       {formatCurrency(log.total_debit, userCurrency, locale)}
                     </td>
                     <td className="px-3 sm:px-4 py-3 text-right">
-                      <button
-                        onClick={() => setDeleteTarget(log)}
-                        className="text-muted-foreground hover:text-rose-500 transition-colors"
-                        title={t('import.undoImport')}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {canWrite && (
+                        <button
+                          onClick={() => setDeleteTarget(log)}
+                          className="text-muted-foreground hover:text-rose-500 transition-colors"
+                          title={t('import.undoImport')}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

@@ -1,8 +1,10 @@
 .env
+secrets/
 .worktrees/
 .DS_Store
 .playwright-mcp/
 .claude
+.mcp.json
 docs/plans/
 tmp/
 docker-compose.override.yml

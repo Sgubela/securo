@@ -27,6 +27,32 @@ export interface AppSetting {
   value: string
 }
 
+export type WorkspaceRole = 'owner' | 'editor' | 'viewer' | 'manager'
+
+export interface Workspace {
+  id: string
+  name: string
+  kind: string
+  is_archived: boolean
+  default_currency: string
+  locale: string | null
+  icon: string | null
+  color: string | null
+  created_at: string
+  created_by_user_id: string | null
+  managed_by_user_id: string | null
+  role: WorkspaceRole | null
+}
+
+export interface WorkspaceMember {
+  id: string
+  user_id: string
+  email: string
+  display_name: string | null
+  role: WorkspaceRole
+  joined_at: string
+}
+
 export interface UserPreferences {
   language?: string
   date_format?: string
@@ -45,6 +71,7 @@ export interface Category {
   color: string
   is_system: boolean
   treat_as_transfer: boolean
+  is_ignored: boolean
 }
 
 export interface CategoryGroup {
@@ -63,6 +90,7 @@ export interface BankConnection {
   user_id: string
   provider: string
   institution_name: string
+  display_name: string | null
   external_id: string
   status: string
   settings: ConnectionSettings | null
@@ -165,6 +193,8 @@ export interface Transaction {
   // Display name of the parent's owner (the person who actually paid).
   // Derived per-request from the group's `is_self` member.
   parent_owner_name?: string | null
+  // Flag to exclude this transaction from reports and dashboard aggregations
+  is_ignored: boolean
 }
 
 export type ShareType = 'equal' | 'exact' | 'percent'
@@ -359,6 +389,7 @@ export interface ProjectedTransaction {
   category_name: string | null
   category_icon: string | null
   category_color: string | null
+  is_ignored: boolean
 }
 
 export interface DashboardSummary {
@@ -591,6 +622,9 @@ export interface ReportMeta {
   series_keys: string[]
   currency: string
   interval: string
+  forecast_start_date?: string | null
+  baseline_active?: boolean
+  baseline_lookback_days?: number | null
 }
 
 export interface ReportCompositionItem {

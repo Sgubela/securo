@@ -33,6 +33,7 @@ from app.api.settings import router as settings_router
 from app.api.transactions import router as transactions_router
 from app.api.two_factor import router as two_factor_router
 from app.api.user_lookup import router as user_lookup_router
+from app.api.workspaces import router as workspaces_router
 from app.api.admin import router as admin_router, check_registration_enabled
 from app.core.auth import fastapi_users
 from app.core.config import get_settings
@@ -133,6 +134,7 @@ app.include_router(export_router)
 app.include_router(attachments_router)
 app.include_router(payees_router)
 app.include_router(settings_router)
+app.include_router(workspaces_router)
 app.include_router(admin_router)
 app.include_router(info_router)
 
@@ -148,13 +150,15 @@ if os.getenv("AGENTS_ENABLED", "false").strip().lower() in ("1", "true", "yes", 
         from app.agents.api.conversations import router as agents_conversations_router
         from app.agents.api.chat import router as agents_chat_router
         from app.agents.api.knowledge import router as agents_knowledge_router
+        from app.agents.api.mcp_tokens import router as agents_mcp_tokens_router
 
-        # Mount literal-prefix routers (conversations, connections) BEFORE
-        # the generic agents router so paths like /api/agents/connections
-        # don't get captured by /api/agents/{agent_id}.
+        # Mount literal-prefix routers (conversations, connections,
+        # mcp-tokens) BEFORE the generic agents router so paths like
+        # /api/agents/connections don't get captured by /api/agents/{agent_id}.
         app.include_router(agents_info_router)
         app.include_router(agents_connections_router)
         app.include_router(agents_conversations_router)
+        app.include_router(agents_mcp_tokens_router)
         app.include_router(agents_router)
         app.include_router(agents_chat_router)
         app.include_router(agents_knowledge_router)

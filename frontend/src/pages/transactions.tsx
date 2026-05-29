@@ -24,7 +24,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
-import { AlertTriangle, ArrowLeftRight, ArrowUp, ArrowDown, Check, Copy, Download, HelpCircle, Info, Paperclip, Users, X } from 'lucide-react'
+import { AlertTriangle, ArrowLeftRight, ArrowUp, ArrowDown, Check, Copy, Download, HelpCircle, Info, Paperclip, Users, X, EyeClosed } from 'lucide-react'
 import type { Transaction } from '@/types'
 import { PageHeader } from '@/components/page-header'
 import { CategoryIcon } from '@/components/category-icon'
@@ -38,6 +38,7 @@ import { BulkAddToGroupDialog, type BulkAddToGroupSubmission } from '@/component
 import { TransactionsFilterBar } from '@/components/transactions-filter-bar'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
+import { useWorkspace } from '@/contexts/workspace-context'
 
 type TransactionUpdatePayload = Partial<Transaction> & {
   apply_to_transfer_pair?: boolean
@@ -65,6 +66,7 @@ export default function TransactionsPage() {
   const locale = i18n.language === 'en' ? 'en-US' : i18n.language
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
+  const { canWrite } = useWorkspace()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
@@ -87,6 +89,8 @@ export default function TransactionsPage() {
   const [filterPayee, setFilterPayee] = useState<string>(searchParams.get('payee_id') ?? '')
   const [filterGroupId, setFilterGroupId] = useState<string>(searchParams.get('group_id') ?? '')
   const [filterType, setFilterType] = useState<string>(searchParams.get('type') ?? '')
+  const [filterMinAmount, setFilterMinAmount] = useState<string>(searchParams.get('min_amount') ?? '')
+  const [filterMaxAmount, setFilterMaxAmount] = useState<string>(searchParams.get('max_amount') ?? '')
   const [tagFilters, setTagFilters] = useState<string[]>([])
 
   // When the page is opened with a `group_id`, fetch its name so the
@@ -153,6 +157,8 @@ export default function TransactionsPage() {
     setFilterAccountIds(accounts ? accounts.split(',') : []);
     setFilterFrom(searchParams.get('from') ?? '');
     setFilterTo(searchParams.get('to') ?? '');
+    setFilterMinAmount(searchParams.get('min_amount') ?? '');
+    setFilterMaxAmount(searchParams.get('max_amount') ?? '');
     setPage(1)
   }, [searchParams])
 
@@ -171,6 +177,8 @@ export default function TransactionsPage() {
         ['account_id', filterAccountIds.join(',')],
         ['from', filterFrom],
         ['to', filterTo],
+        ['min_amount', filterMinAmount],
+        ['max_amount', filterMaxAmount],
       ].filter(([, v]) => v.length),
     );
 
@@ -190,6 +198,8 @@ export default function TransactionsPage() {
     filterAccountIds,
     filterFrom,
     filterTo,
+    filterMinAmount,
+    filterMaxAmount,
   ]);
 
   useEffect(() => {
@@ -205,7 +215,7 @@ export default function TransactionsPage() {
   useEffect(() => {
     setSelectedIds(new Set())
     setBulkCategory('')
-  }, [page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterType, filterFrom, filterTo, searchQuery])
+  }, [page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterType, filterFrom, filterTo, filterMinAmount, filterMaxAmount, searchQuery])
 
   // Reset bulk category when selection changes so the same category can be re-applied
   useEffect(() => {
@@ -234,7 +244,7 @@ export default function TransactionsPage() {
   }, [highlightId, searchQuery, filterPayee, filterCategoryIds, page])
 
   const { data, isLoading } = useQuery({
-    queryKey: ['transactions', page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterGroupId, filterType, filterFrom, filterTo, searchQuery, tagFilters, grid.sortBy, grid.sortDir],
+    queryKey: ['transactions', page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterGroupId, filterType, filterFrom, filterTo, filterMinAmount, filterMaxAmount, searchQuery, tagFilters, grid.sortBy, grid.sortDir],
     queryFn: () =>
       transactions.list({
         page,
@@ -247,6 +257,8 @@ export default function TransactionsPage() {
         uncategorized: filterUncategorized ? true : undefined,
         from: filterFrom || undefined,
         to: filterTo || undefined,
+        min_amount: filterMinAmount ? Number(filterMinAmount) : undefined,
+        max_amount: filterMaxAmount ? Number(filterMaxAmount) : undefined,
         q: searchQuery || undefined,
         tags: tagFilters.length > 0 ? tagFilters : undefined,
         ...grid.apiSort,
@@ -267,6 +279,8 @@ export default function TransactionsPage() {
     uncategorized: filterUncategorized || undefined,
     from: filterFrom || undefined,
     to: filterTo || undefined,
+    min_amount: filterMinAmount || undefined,
+    max_amount: filterMaxAmount || undefined,
     tags: tagFilters.length ? tagFilters : undefined,
     sort_by: grid.sortBy,
     sort_dir: grid.sortDir,
@@ -698,11 +712,11 @@ export default function TransactionsPage() {
       <>
         <span
           className={`text-xs md:text-sm font-bold tabular-nums ${
-            tx.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'
+            tx.is_ignored ? 'text-gray-500': tx.type === 'credit' ? 'text-emerald-600' : 'text-rose-500'
           }`}
         >
           {mask(
-            `${tx.type === 'credit' ? '+' : '−'}${formatCurrency(
+            `${tx.is_ignored ? ' ' : tx.type === 'credit' ? '+' : '−'}${formatCurrency(
               Math.abs(displayAmount),
               tx.currency,
               locale,
@@ -772,6 +786,15 @@ export default function TransactionsPage() {
                 <span title={t('transactions.transferTooltip')}><HelpCircle className="h-3 w-3 text-blue-400" /></span>
               </span>
             )}
+            {tx.is_ignored && 
+              (
+              <span className="ml-2 inline-flex items-center gap-1 text-xs text-gray-600 font-normal bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5">
+                <EyeClosed className="h-3 w-3" />
+                {t('transactions.ignored')}
+                <span title={t('transactions.ignoreTransferHint')}><HelpCircle className="h-3 w-3 text-blue-400" /></span>
+              </span>
+                            )
+            }
             {recurringList?.some(r => r.description === tx.description && r.type === tx.type) && (
               <span className="text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full">
                 {t('transactions.recurringBadge')}
@@ -975,7 +998,7 @@ export default function TransactionsPage() {
                 that row's fields; identity-bearing fields (id,
                 transfer_pair_id, splits) are not copied. Hidden for
                 shared rows and transfers — they can't be duplicated. */}
-            {selectedIds.size === 1 && (() => {
+            {canWrite && selectedIds.size === 1 && (() => {
               const selectedTx = filteredItems.find(tx => selectedIds.has(tx.id))
               if (!selectedTx || selectedTx.is_shared || selectedTx.transfer_pair_id) return null
               return (
@@ -988,13 +1011,17 @@ export default function TransactionsPage() {
                 </Button>
               )
             })()}
-            <Button variant="outline" onClick={() => setTransferDialogOpen(true)}>
-              <ArrowLeftRight size={16} className="mr-1.5" />
-              {t('transactions.transfer')}
-            </Button>
-            <Button onClick={() => { setEditingTx(null); setDialogOpen(true) }}>
-              + {t('transactions.addManual')}
-            </Button>
+            {canWrite && (
+              <>
+                <Button variant="outline" onClick={() => setTransferDialogOpen(true)}>
+                  <ArrowLeftRight size={16} className="mr-1.5" />
+                  {t('transactions.transfer')}
+                </Button>
+                <Button onClick={() => { setEditingTx(null); setDialogOpen(true) }}>
+                  + {t('transactions.addManual')}
+                </Button>
+              </>
+            )}
           </div>
         }
       />
@@ -1031,6 +1058,9 @@ export default function TransactionsPage() {
         filterFrom={filterFrom}
         filterTo={filterTo}
         onDateRangeChange={(from, to) => { setFilterFrom(from); setFilterTo(to); setPage(1) }}
+        filterMinAmount={filterMinAmount}
+        filterMaxAmount={filterMaxAmount}
+        onAmountRangeChange={(min, max) => { setFilterMinAmount(min); setFilterMaxAmount(max); setPage(1) }}
         onClearAll={() => {
           setFilterFrom('')
           setFilterTo('')
@@ -1040,6 +1070,8 @@ export default function TransactionsPage() {
           setFilterPayee('')
           setFilterGroupId('')
           setFilterType('')
+          setFilterMinAmount('')
+          setFilterMaxAmount('')
           setSearchInput('')
           setSearchQuery('')
           clearTagFilters()
@@ -1105,13 +1137,15 @@ export default function TransactionsPage() {
             <TableHeader>
               <TableRow className="border-b border-border hover:bg-transparent">
                 <TableHead style={{ width: 40, minWidth: 40 }} className="py-3 pl-4 pr-0">
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    ref={(el) => { if (el) el.indeterminate = someSelected }}
-                    onChange={toggleSelectAll}
-                    className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
-                  />
+                  {canWrite && (
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      ref={(el) => { if (el) el.indeterminate = someSelected }}
+                      onChange={toggleSelectAll}
+                      className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                    />
+                  )}
                 </TableHead>
                 {grid.visibleColumns.map(renderHeaderCell)}
               </TableRow>
@@ -1123,13 +1157,14 @@ export default function TransactionsPage() {
                   ref={tx.id === highlightId ? highlightedRowRef : undefined}
                   className={`hover:bg-muted border-b border-border last:border-0 ${
                     selectedIds.has(tx.id) ? 'bg-primary/5' : ''
-                  } ${tx.is_shared ? 'cursor-default' : 'cursor-pointer'}`}
+                  } ${tx.is_shared || !canWrite ? 'cursor-default' : 'cursor-pointer'}`}
                   onClick={() => {
                     if (tx.is_shared) {
                       // Owned by another user — view in the group context instead.
                       if (tx.group_id) navigate(`/groups/${tx.group_id}`)
                       return
                     }
+                    if (!canWrite) return
                     setEditingTx(tx)
                     setDialogOpen(true)
                   }}
@@ -1138,7 +1173,7 @@ export default function TransactionsPage() {
                     {/* Bulk operations are scoped to user.id so they
                         silently skip shared rows — hide the checkbox
                         on those to avoid the dead-end UX. */}
-                    {!tx.is_shared && (
+                    {canWrite && !tx.is_shared && (
                       <input
                         type="checkbox"
                         checked={selectedIds.has(tx.id)}
@@ -1416,6 +1451,7 @@ export default function TransactionsPage() {
         onSave={handleTransactionSave}
         onDelete={editingTx ? () => deleteMutation.mutate(editingTx.id) : undefined}
         onUnlinkTransfer={(pairId) => unlinkTransferMutation.mutate(pairId)}
+        onIgnoreChanged={invalidateAfterTxMutation}
         loading={createMutation.isPending || updateMutation.isPending || deleteMutation.isPending || unlinkTransferMutation.isPending}
         error={createMutation.error || updateMutation.error ? extractApiError(createMutation.error || updateMutation.error) : null}
         isSynced={editingTx?.source === 'sync'}

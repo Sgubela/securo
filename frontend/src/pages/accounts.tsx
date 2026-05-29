@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { getAccountName } from '@/lib/account-utils'
+import { getConnectionName } from '@/lib/connection-utils'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -36,11 +37,14 @@ import {
 } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
 import { BankConnectDialog } from '@/components/bank-connect-dialog'
-import { ConnectorSelectDialog } from '@/components/connector-select-dialog'
+import { ConnectorSelectDialog, type Provider } from '@/components/connector-select-dialog'
+import { OAuthConnectDialog } from '@/components/oauth-connect-dialog'
+import { TokenConnectDialog } from '@/components/token-connect-dialog'
 import { ConnectionSettingsDialog } from '@/components/connection-settings-dialog'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { useAuth } from '@/contexts/auth-context'
 import { useFeatureFlags } from '@/hooks/use-feature-flags'
+import { useWorkspace } from '@/contexts/workspace-context'
 
 function formatCurrency(value: number, currency = 'USD', locale = 'en-US') {
   return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(value)
@@ -72,13 +76,14 @@ export default function AccountsPage() {
   const { mask } = usePrivacyMode()
   const { user } = useAuth()
   const { demoMode } = useFeatureFlags()
+  const { canWrite } = useWorkspace()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [connectorSelectOpen, setConnectorSelectOpen] = useState(false)
-  const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
+  const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null)
   const [settingsConnection, setSettingsConnection] = useState<BankConnection | null>(null)
   const [disconnectingConnection, setDisconnectingConnection] = useState<BankConnection | null>(null)
   const [closingAccountId, setClosingAccountId] = useState<string | null>(null)
@@ -94,6 +99,35 @@ export default function AccountsPage() {
     queryKey: ['connections'],
     queryFn: connections.list,
   })
+
+  const { data: providersList } = useQuery({
+    queryKey: ['connections', 'providers'],
+    queryFn: connections.getProviders,
+    staleTime: 1000 * 60 * 10,
+  })
+
+  const providersByName = useMemo(() => {
+    const map = new Map<string, Provider>()
+    for (const p of providersList ?? []) map.set(p.name, p as Provider)
+    return map
+  }, [providersList])
+
+  const handleReconnectClick = async (conn: BankConnection) => {
+    const providerInfo = providersByName.get(conn.provider)
+    if (providerInfo?.flow_type === 'oauth') {
+      try {
+        const url = await connections.getReauthUrl(conn.id)
+        window.location.assign(url)
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        toast.error(message || t('accounts.connectError'))
+      }
+      return
+    }
+    // Widget flow (Pluggy): re-open the widget with the existing item_id.
+    setReconnectConnId(conn.id)
+    setReconnectItemId(conn.external_id)
+  }
 
   const { data: closedAccountsList } = useQuery({
     queryKey: ['accounts', 'closed'],
@@ -191,18 +225,20 @@ export default function AccountsPage() {
         section={t('accounts.title')}
         title={t('accounts.title')}
         action={
-          <div className="flex gap-2">
-            {!demoMode && (
-              <Button variant="outline" className="gap-1.5" onClick={() => setConnectorSelectOpen(true)}>
+          canWrite ? (
+            <div className="flex gap-2">
+              {!demoMode && (
+                <Button variant="outline" className="gap-1.5" onClick={() => setConnectorSelectOpen(true)}>
+                  <Plus size={16} />
+                  {t('accounts.connectBank')}
+                </Button>
+              )}
+              <Button onClick={() => { setEditingAccount(null); setDialogOpen(true) }} className="gap-1.5">
                 <Plus size={16} />
-                {t('accounts.connectBank')}
+                {t('accounts.addManual')}
               </Button>
-            )}
-            <Button onClick={() => { setEditingAccount(null); setDialogOpen(true) }} className="gap-1.5">
-              <Plus size={16} />
-              {t('accounts.addManual')}
-            </Button>
-          </div>
+            </div>
+          ) : undefined
         }
       />
 
@@ -245,30 +281,32 @@ export default function AccountsPage() {
                           </p>
                         </div>
                       </Link>
-                      <div className="flex items-center gap-1 mr-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                          onClick={() => { setEditingAccount(acc); setDialogOpen(true) }}
-                          title={t('common.edit')}
-                        >
-                          <Pencil size={13} />
-                        </button>
-                        <button
-                          className="p-1.5 rounded-md text-muted-foreground hover:text-amber-600 hover:bg-amber-50 transition-colors"
-                          onClick={() => setClosingAccountId(acc.id)}
-                          title={t('accounts.close')}
-                        >
-                          <Archive size={13} />
-                        </button>
-                        <button
-                          className="p-1.5 rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors"
-                          onClick={() => setDeletingId(acc.id)}
-                          disabled={deleteMutation.isPending}
-                          title={t('common.delete')}
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
+                      {canWrite && (
+                        <div className="flex items-center gap-1 mr-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            onClick={() => { setEditingAccount(acc); setDialogOpen(true) }}
+                            title={t('common.edit')}
+                          >
+                            <Pencil size={13} />
+                          </button>
+                          <button
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                            onClick={() => setClosingAccountId(acc.id)}
+                            title={t('accounts.close')}
+                          >
+                            <Archive size={13} />
+                          </button>
+                          <button
+                            className="p-1.5 rounded-md text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors"
+                            onClick={() => setDeletingId(acc.id)}
+                            disabled={deleteMutation.isPending}
+                            title={t('common.delete')}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      )}
                       <div className="text-right">
                         <p className={`text-xs sm:text-sm font-semibold tabular-nums ${(acc.type === 'credit_card' ? bal > 0 : bal < 0) ? 'text-rose-500' : 'text-foreground'}`}>
                           {mask(formatCurrency(bal, acc.currency, locale))}
@@ -309,7 +347,7 @@ export default function AccountsPage() {
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <p className="text-sm font-semibold text-foreground">{conn.institution_name}</p>
+                            <p className="text-sm font-semibold text-foreground">{getConnectionName(conn)}</p>
                             <Badge
                               variant={conn.status === 'active' ? 'default' : 'secondary'}
                               className="text-[10px] px-1.5 py-0 h-4"
@@ -324,53 +362,56 @@ export default function AccountsPage() {
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-                          onClick={() => setSettingsConnection(conn)}
-                        >
-                          <Settings size={14} />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-                          onClick={() => syncMutation.mutate(conn.id)}
-                          disabled={syncMutation.isPending}
-                        >
-                          <RefreshCw size={14} className={syncMutation.isPending ? 'animate-spin' : ''} />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0 text-muted-foreground hover:text-rose-500"
-                          onClick={() => setDisconnectingConnection(conn)}
-                          disabled={disconnectMutation.isPending}
-                        >
-                          <Unlink size={14} />
-                        </Button>
-                      </div>
+                      {canWrite && (
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                            onClick={() => setSettingsConnection(conn)}
+                          >
+                            <Settings size={14} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                            onClick={() => syncMutation.mutate(conn.id)}
+                            disabled={syncMutation.isPending}
+                          >
+                            <RefreshCw size={14} className={syncMutation.isPending ? 'animate-spin' : ''} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-rose-500"
+                            onClick={() => setDisconnectingConnection(conn)}
+                            disabled={disconnectMutation.isPending}
+                          >
+                            <Unlink size={14} />
+                          </Button>
+                        </div>
+                      )}
                     </div>
                     {/* Reconnect banner */}
                     {conn.status !== 'active' && (
                       <div className="mx-5 mt-3 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
                         <span className="text-sm text-amber-800">
-                          {t('accounts.connectionError')}
+                          {conn.status === 'expired'
+                            ? t('accounts.connectionExpired')
+                            : t('accounts.connectionError')}
                         </span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="border-amber-300 text-amber-700 hover:bg-amber-100 gap-1.5 h-8"
-                          onClick={() => {
-                            setReconnectConnId(conn.id)
-                            setReconnectItemId(conn.external_id)
-                          }}
-                        >
-                          <RefreshCw size={12} />
-                          {t('accounts.reconnect')}
-                        </Button>
+                        {canWrite && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-amber-300 text-amber-700 hover:bg-amber-100 gap-1.5 h-8"
+                            onClick={() => handleReconnectClick(conn)}
+                          >
+                            <RefreshCw size={12} />
+                            {t('accounts.reconnect')}
+                          </Button>
+                        )}
                       </div>
                     )}
                     {/* Accounts list */}
@@ -402,22 +443,24 @@ export default function AccountsPage() {
                                   </p>
                                 </div>
                               </Link>
-                              <div className="flex items-center gap-1 mr-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button
-                                  className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                                  onClick={(e) => { e.preventDefault(); setEditingAccount(acc); setDialogOpen(true) }}
-                                  title={t('common.edit')}
-                                >
-                                  <Pencil size={13} />
-                                </button>
-                                <button
-                                  className="p-1.5 rounded-md text-muted-foreground hover:text-amber-600 hover:bg-amber-50 transition-colors"
-                                  onClick={(e) => { e.preventDefault(); setClosingAccountId(acc.id) }}
-                                  title={t('accounts.close')}
-                                >
-                                  <Archive size={13} />
-                                </button>
-                              </div>
+                              {canWrite && (
+                                <div className="flex items-center gap-1 mr-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button
+                                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                                    onClick={(e) => { e.preventDefault(); setEditingAccount(acc); setDialogOpen(true) }}
+                                    title={t('common.edit')}
+                                  >
+                                    <Pencil size={13} />
+                                  </button>
+                                  <button
+                                    className="p-1.5 rounded-md text-muted-foreground hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                                    onClick={(e) => { e.preventDefault(); setClosingAccountId(acc.id) }}
+                                    title={t('accounts.close')}
+                                  >
+                                    <Archive size={13} />
+                                  </button>
+                                </div>
+                              )}
                               <div className="text-right">
                                 <p className={`text-xs sm:text-sm font-semibold tabular-nums ${(acc.type === 'credit_card' ? bal > 0 : bal < 0) ? 'text-rose-500' : 'text-foreground'}`}>
                                   {mask(formatCurrency(bal, acc.currency, locale))}
@@ -469,15 +512,17 @@ export default function AccountsPage() {
                         </div>
                         <p className="text-sm font-medium text-muted-foreground truncate">{getAccountName(acc)}</p>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-xs text-muted-foreground hover:text-foreground h-7 px-2 mr-3"
-                        onClick={() => reopenMutation.mutate(acc.id)}
-                        disabled={reopenMutation.isPending}
-                      >
-                        {t('accounts.reopen')}
-                      </Button>
+                      {canWrite && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs text-muted-foreground hover:text-foreground h-7 px-2 mr-3"
+                          onClick={() => reopenMutation.mutate(acc.id)}
+                          disabled={reopenMutation.isPending}
+                        >
+                          {t('accounts.reopen')}
+                        </Button>
+                      )}
                       <p className="text-sm font-semibold tabular-nums text-muted-foreground w-32 text-right">
                         {mask(formatCurrency(Number(acc.current_balance), acc.currency, locale))}
                       </p>
@@ -521,7 +566,7 @@ export default function AccountsPage() {
             <DialogTitle>{t('accounts.confirmDisconnectTitle')}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            {t('accounts.confirmDisconnectDesc', { institution: disconnectingConnection?.institution_name ?? '' })}
+            {t('accounts.confirmDisconnectDesc', { institution: disconnectingConnection ? getConnectionName(disconnectingConnection) : '' })}
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDisconnectingConnection(null)}>
@@ -574,11 +619,25 @@ export default function AccountsPage() {
         onSelect={(provider) => setSelectedProvider(provider)}
       />
 
-      {/* Bank Connect Dialog */}
+      {/* Bank Connect Dialog — widget-based (Pluggy) */}
       <BankConnectDialog
-        open={!!selectedProvider}
+        open={!!selectedProvider && selectedProvider.flow_type === 'widget'}
         onClose={() => setSelectedProvider(null)}
-        provider={selectedProvider ?? undefined}
+        provider={selectedProvider?.name}
+      />
+
+      {/* OAuth Connect Dialog — institution-pickers (Enable Banking) */}
+      <OAuthConnectDialog
+        open={!!selectedProvider && selectedProvider.flow_type === 'oauth'}
+        onClose={() => setSelectedProvider(null)}
+        provider={selectedProvider?.name ?? ''}
+      />
+
+      {/* Token Connect Dialog — paste-a-token flow (SimpleFIN) */}
+      <TokenConnectDialog
+        open={!!selectedProvider && selectedProvider.flow_type === 'token'}
+        onClose={() => setSelectedProvider(null)}
+        provider={selectedProvider?.name ?? ''}
       />
 
       {/* Reconnect Dialog */}

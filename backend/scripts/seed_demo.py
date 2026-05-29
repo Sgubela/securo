@@ -41,6 +41,7 @@ from app.models.transaction import Transaction
 from app.models.transaction_split import TransactionSplit
 from app.models.user import User
 from app.schemas.user import UserCreate
+from app.services.workspace_service import create_personal_workspace_for_user
 from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi_users.exceptions import UserAlreadyExists
 
@@ -213,6 +214,17 @@ async def seed(email: str, password: str, months: int) -> None:
         uid = user.id
         print(f"  user {uid}")
 
+        # 1b. Personal workspace ---------------------------------------------
+        # Every financial entity (Account, Category, Transaction, ...)
+        # now has a NOT NULL workspace_id. The autostamp listener fills
+        # it in for ORM `session.add()` inserts when user_id is set, but
+        # bulk pg_insert() calls (transactions, asset values) bypass the
+        # listener and need workspace_id passed explicitly.
+        workspace = await create_personal_workspace_for_user(session, user)
+        wsid = workspace.id
+        await session.commit()
+        print(f"  workspace {wsid}")
+
         # 2. Accounts --------------------------------------------------------
         accounts: list[Account] = []
         openings: list[tuple[Account, Decimal]] = []
@@ -286,6 +298,7 @@ async def seed(email: str, password: str, months: int) -> None:
                 tx_rows.append({
                     "id": uuid.uuid4(),
                     "user_id": uid,
+                    "workspace_id": wsid,
                     "account_id": acc.id,
                     "category_id": opening_cat.id,
                     "description": "Saldo Inicial",
@@ -304,6 +317,7 @@ async def seed(email: str, password: str, months: int) -> None:
             tx_rows.append({
                 "id": uuid.uuid4(),
                 "user_id": uid,
+                "workspace_id": wsid,
                 "account_id": account.id,
                 "category_id": cat_by_name[cat_name].id,
                 "description": payee,
@@ -415,6 +429,7 @@ async def seed(email: str, password: str, months: int) -> None:
                 value_rows.append({
                     "id": uuid.uuid4(),
                     "asset_id": asset.id,
+                    "workspace_id": wsid,
                     "amount": amount,
                     "date": d,
                     "source": "seed",
@@ -446,6 +461,7 @@ async def seed(email: str, password: str, months: int) -> None:
                 value_rows.append({
                     "id": uuid.uuid4(),
                     "asset_id": asset.id,
+                    "workspace_id": wsid,
                     "amount": v.quantize(Decimal("0.01")),
                     "date": d,
                     "source": "seed",

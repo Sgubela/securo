@@ -237,7 +237,7 @@ export const connections = {
     const { data } = await api.get('/connections')
     return data
   },
-  getProviders: async (): Promise<{ name: string; display_name: string; description: string; flow_type: string; configured: boolean; requires_institution_select?: boolean }[]> => {
+  getProviders: async (): Promise<{ name: string; display_name: string; description: string; flow_type: string; configured: boolean; kind?: string; capabilities?: string[]; requires_institution_select?: boolean }[]> => {
     const { data } = await api.get('/connections/providers')
     return data.providers
   },
@@ -288,7 +288,11 @@ export const connections = {
   },
   updateSettings: async (
     id: string,
-    settings: Partial<ConnectionSettings> & { display_name?: string | null },
+    settings: Partial<ConnectionSettings> & {
+      display_name?: string | null
+      trading212_history_import_enabled?: boolean
+      trading212_history_start?: string | null
+    },
   ): Promise<BankConnection> => {
     const { data } = await api.patch(`/connections/${id}/settings`, settings)
     return data

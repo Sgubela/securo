@@ -7,7 +7,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Building2 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Building2, LineChart } from 'lucide-react'
 
 export interface Provider {
   name: string
@@ -15,6 +16,8 @@ export interface Provider {
   description: string
   flow_type: string
   configured: boolean
+  kind?: 'banking' | 'brokerage' | string
+  capabilities?: string[]
   requires_institution_select?: boolean
 }
 
@@ -58,34 +61,45 @@ export function ConnectorSelectDialog({ open, onClose, onSelect }: ConnectorSele
               {t('accounts.noConnectorsAvailable')}
             </p>
           ) : (
-            providers.map((p) => (
-              <button
-                key={p.name}
-                disabled={!p.configured}
-                onClick={() => {
-                  onSelect(p)
-                  onClose()
-                }}
-                className={`w-full flex items-start gap-3 rounded-lg border p-4 text-left transition-colors ${
-                  p.configured
-                    ? 'border-border hover:border-primary hover:bg-muted/50 cursor-pointer'
-                    : 'border-border/50 opacity-60 cursor-not-allowed'
-                }`}
-              >
-                <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center shrink-0 mt-0.5">
-                  <Building2 size={16} className="text-muted-foreground" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground">{p.display_name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{t(`accounts.providers.${p.name}.description`, p.description)}</p>
-                  {!p.configured && (
-                    <p className="text-xs text-amber-600 mt-1.5">
-                      {t('accounts.connectorNotConfigured')}
-                    </p>
-                  )}
-                </div>
-              </button>
-            ))
+            providers.map((p) => {
+              const isBrokerage = p.kind === 'brokerage'
+              const Icon = isBrokerage ? LineChart : Building2
+              return (
+                <button
+                  key={p.name}
+                  disabled={!p.configured}
+                  onClick={() => {
+                    onSelect(p)
+                    onClose()
+                  }}
+                  className={`w-full flex items-start gap-3 rounded-lg border p-4 text-left transition-colors ${
+                    p.configured
+                      ? 'border-border hover:border-primary hover:bg-muted/50 cursor-pointer'
+                      : 'border-border/50 opacity-60 cursor-not-allowed'
+                  }`}
+                >
+                  <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center shrink-0 mt-0.5">
+                    <Icon size={16} className="text-muted-foreground" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-foreground">{p.display_name}</p>
+                      {p.kind && (
+                        <Badge variant="secondary" className="h-4 px-1.5 py-0 text-[10px]">
+                          {t(`accounts.connectionKinds.${p.kind}`, p.kind)}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">{t(`accounts.providers.${p.name}.description`, p.description)}</p>
+                    {!p.configured && (
+                      <p className="text-xs text-amber-600 mt-1.5">
+                        {t('accounts.connectorNotConfigured')}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              )
+            })
           )}
         </div>
       </DialogContent>

@@ -31,6 +31,7 @@ class AccountData:
     minimum_payment: Optional[Decimal] = None
     card_brand: Optional[str] = None
     card_level: Optional[str] = None
+    metadata: Optional[dict] = None
 
 
 @dataclass
@@ -46,6 +47,7 @@ class TransactionData:
     status: str = "posted"  # posted, pending
     payee: Optional[str] = None
     raw_data: Optional[dict] = None
+    is_ignored: bool = False
     # Installment metadata (parcelamento) — populated by CC providers that expose it.
     installment_number: Optional[int] = None
     total_installments: Optional[int] = None
@@ -202,6 +204,11 @@ class BankProvider(ABC):
     def flow_type(self) -> str:
         """Connection flow type: 'oauth' for redirect-based, 'widget' for embedded widget."""
         return "oauth"
+
+    @property
+    def kind(self) -> str:
+        """Provider kind: banking by default; brokerage providers override."""
+        return "banking"
 
     @property
     def redirect_uri(self) -> str:

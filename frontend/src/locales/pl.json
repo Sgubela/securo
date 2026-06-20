@@ -527,10 +527,10 @@
     "deleted": "Usunięto konto",
     "syncDone": "Synchronizacja zakończona",
     "syncError": "Synchronizacja nie powiodła się",
-    "connected": "Pomyślnie połączono bank",
-    "connectError": "Nie udało się połączyć banku",
+    "connected": "Połączenie dodane pomyślnie",
+    "connectError": "Nie udało się dodać połączenia",
     "disconnected": "Usunięto połączenie",
-    "confirmDisconnectTitle": "Odłączyć połączenie bankowe?",
+    "confirmDisconnectTitle": "Odłączyć połączenie?",
     "confirmDisconnectDesc": "Spowoduje to odłączenie {{institution}} oraz usunięcie z aplikacji zsynchronizowanych kont i transakcji. Ta operacja jest nieodwracalna.",
     "viewTransactions": "Zobacz transakcje",
     "currentBalance": "Bieżące saldo",
@@ -556,9 +556,9 @@
     "mergedCount_many": "Scalono {{count}} transakcji z danymi z synchronizacji",
     "mergedCount_other": "Scalono {{count}} transakcji z danymi z synchronizacji",
     "selectConnector": "Wybierz łącznik",
-    "selectConnectorDesc": "Wybierz dostawcę połączenia bankowego",
+    "selectConnectorDesc": "Wybierz dostawcę bankowego lub maklerskiego",
     "connectorNotConfigured": "Ten łącznik wymaga konfiguracji. Skonfiguruj wymagane dane uwierzytelniające, aby go włączyć.",
-    "noConnectorsAvailable": "Brak dostępnych łączników bankowych",
+    "noConnectorsAvailable": "Brak dostępnych łączników",
     "selectCountry": "Wybierz kraj",
     "selectCountryDesc": "Wybierz kraj, w którym znajduje się Twój bank",
     "selectBank": "Wybierz bank",
@@ -592,6 +592,20 @@
       "simplefin": {
         "title": "Połącz przez SimpleFIN",
         "description": "SimpleFIN to protokół danych bankowych tylko do odczytu. Przejdź do SimpleFIN Bridge, wybierz swój bank i skopiuj token konfiguracyjny tutaj."
+      },
+      "trading212": {
+        "title": "Połącz Trading 212",
+        "description": "Dodaj dane API Trading 212 do synchronizacji maklerskiej tylko do odczytu.",
+        "readOnlyNotice": "Użyj klucza API Trading 212 tylko do odczytu ze scope account, portfolio, metadata, history:transactions, history:dividends i history:orders. Nie nadawaj uprawnień handlowych/zapisu, takich jak orders:execute lub pies:write.",
+        "environment": "Środowisko",
+        "live": "Live",
+        "demo": "Demo",
+        "apiKeyLabel": "Klucz API",
+        "apiSecretLabel": "Sekret API",
+        "scopesHelp": "Dane są przechowywane w formie zaszyfrowanej i nigdy nie są zwracane przez API. Securo wywołuje tylko endpointy odczytu.",
+        "importHistory": "Importuj historię przy pierwszej synchronizacji",
+        "importHistoryHelp": "Importuje wpłaty, wypłaty, opłaty, dywidendy, eksporty odsetek i wykonania zleceń, gdy są dostępne.",
+        "historyStart": "Data początku historii (opcjonalnie)"
       }
     },
     "providers": {
@@ -603,7 +617,18 @@
       },
       "simplefin": {
         "description": "Banki w USA i międzynarodowe przez SimpleFIN Bridge"
+      },
+      "trading212": {
+        "description": "Tylko do odczytu: gotówka, portfel i historia Trading 212"
       }
+    },
+    "connectFinancialConnection": "Połącz konto",
+    "brokerageConnections": "Połączenia maklerskie",
+    "noBrokerageConnections": "Brak połączeń maklerskich",
+    "trading212ReadOnlyNotice": "Synchronizacja Trading 212 jest tylko do odczytu. Securo importuje gotówkę, pozycje, dywidendy, odsetki i historię zleceń, ale nigdy nie składa ani nie anuluje transakcji.",
+    "connectionKinds": {
+      "banking": "Bankowe",
+      "brokerage": "Maklerskie"
     }
   },
   "connections": {

@@ -2,12 +2,29 @@ import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.bank_connection import BankConnection
 from app.models.user import User
+from app.providers import register_provider
+from app.providers.trading212 import Trading212Provider
+
+
+def _patched_t212_client(summary: dict):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/api/v0/equity/account/summary"
+        return httpx.Response(200, json=summary)
+
+    transport = httpx.MockTransport(handler)
+
+    async def fake_client(self, credentials=None):  # noqa: ANN001
+        return httpx.AsyncClient(transport=transport, timeout=30)
+
+    return patch.object(Trading212Provider, "_client", fake_client)
 
 
 @pytest.mark.asyncio
@@ -22,7 +39,74 @@ async def test_list_providers(client: AsyncClient, auth_headers):
     assert by_name["pluggy"]["flow_type"] == "widget"
     assert "enable_banking" in by_name
     assert by_name["enable_banking"]["flow_type"] == "oauth"
+    assert by_name["enable_banking"]["kind"] == "banking"
     assert by_name["enable_banking"]["requires_institution_select"] is True
+    assert by_name["trading212"]["flow_type"] == "token"
+    assert by_name["trading212"]["kind"] == "brokerage"
+    assert "holdings" in by_name["trading212"]["capabilities"]
+
+
+@pytest.mark.asyncio
+async def test_trading212_token_callback_creates_brokerage_connection_without_secret_echo(
+    client: AsyncClient, auth_headers, session: AsyncSession
+):
+    register_provider("trading212", Trading212Provider)
+    summary = {
+        "id": 987654321,
+        "currency": "EUR",
+        "cash": {"availableToTrade": 0, "inPies": 0, "reservedForOrders": 0},
+        "investments": {},
+        "totalValue": 0,
+    }
+
+    with _patched_t212_client(summary):
+        response = await client.post(
+            "/api/connections/oauth/callback",
+            json={"provider": "trading212", "code": "demo:key-123:secret-456"},
+            headers=auth_headers,
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "trading212"
+    assert payload["kind"] == "brokerage"
+    assert payload["institution_name"] == "Trading 212"
+    assert payload["external_id"] == "987654321"
+    assert "secret-456" not in response.text
+
+    connection = await session.get(BankConnection, uuid.UUID(payload["id"]))
+    assert connection is not None
+    assert connection.kind == "brokerage"
+    assert connection.credentials is not None
+    assert "api_key" not in connection.credentials
+    assert connection.credentials["environment"] == "demo"
+    assert Trading212Provider._api_key(connection.credentials) == "key-123"
+    assert Trading212Provider._api_secret(connection.credentials) == "secret-456"
+    assert "key-123" not in str(connection.credentials)
+    assert "api_secret" not in connection.credentials
+    assert "secret-456" not in str(connection.credentials)
+
+
+@pytest.mark.asyncio
+async def test_trading212_connection_settings_store_initial_history_options(
+    client: AsyncClient, auth_headers, test_connection: BankConnection
+):
+    test_connection.provider = "trading212"
+    test_connection.kind = "brokerage"
+
+    response = await client.patch(
+        f"/api/connections/{test_connection.id}/settings",
+        json={
+            "trading212_history_import_enabled": False,
+            "trading212_history_start": "2024-01-01",
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["settings"]["trading212"]["history_import_enabled"] is False
+    assert payload["settings"]["trading212"]["history_start"] == "2024-01-01"
 
 
 @pytest.mark.asyncio

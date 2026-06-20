@@ -50,6 +50,7 @@ Open [http://localhost:3000](http://localhost:3000) and create an account. That'
 - Asset management with valuation tracking and growth rules
 - Reports: Net Worth and Income vs Expenses with category sparklines
 - Bank sync via providers (Pluggy for Brazilian banks, Enable Banking for ~2500 European PSD2 banks, SimpleFIN for US and international banks, extensible)
+- Read-only brokerage sync for Trading 212 (cash, holdings, dividends, interest exports, and order history; see `docs/trading212.md`)
 - Multi-currency support with automatic FX conversion
 - Multi-user support with admin panel and registration controls
 - Two-factor authentication (TOTP) with brute-force protection

@@ -202,11 +202,22 @@ class Trading212Provider(BankProvider):
             next_page = data.get("nextPagePath") if isinstance(data, dict) else None
             if not next_page:
                 break
-            if "?" in next_page:
-                next_path, query = next_page.split("?", 1)
-                next_params = dict(httpx.QueryParams(query))
+            # Trading 212's nextPagePath may be a full path ("/api/v0/...?query"),
+            # a path-less query string ("?limit=50&cursor=..."), or just raw
+            # query params ("limit=50&cursor=...").  Normalise to always reuse
+            # the original endpoint path with updated query params.
+            if next_page.startswith("/"):
+                # Full path — split into path + query
+                if "?" in next_page:
+                    next_path, query = next_page.split("?", 1)
+                    next_params = dict(httpx.QueryParams(query))
+                else:
+                    next_path, next_params = next_page, {}
             else:
-                next_path, next_params = next_page, {}
+                # Query params only — keep the same endpoint path
+                next_path = path
+                query = next_page.lstrip("?")
+                next_params = dict(httpx.QueryParams(query)) if query else {}
         return items
 
     def get_oauth_url(self, *args, **kwargs):  # type: ignore[override]

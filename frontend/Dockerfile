@@ -12,7 +12,7 @@ COPY . .
 RUN npm run build
 
 # Serve with nginx
-FROM nginxinc/nginx-unprivileged:alpine
+FROM docker.io/nginxinc/nginx-unprivileged:alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY default.conf.template /etc/nginx/templates/default.conf.template

@@ -43,6 +43,7 @@ import {
   Shield,
   ShieldCheck,
   Sparkles,
+  Fingerprint,
 } from 'lucide-react'
 import { CategoryIcon } from '@/components/category-icon'
 import type { Workspace } from '@/types'
@@ -77,6 +78,8 @@ interface AccountMenuProps {
   onChangePassword: () => void
   /** Open the 2FA setup dialog. */
   onTwoFactor: () => void
+  /** Open the passkey management dialog. */
+  onPasskeys: () => void
   /** Trigger a backup download. */
   onBackup: () => void
   /** Open the "Update available" dialog. */
@@ -98,6 +101,7 @@ export function WorkspaceSwitcher({
   backingUp,
   onChangePassword,
   onTwoFactor,
+  onPasskeys,
   onBackup,
   onUpdateAvailable,
   agentsEnabled,
@@ -241,6 +245,13 @@ export function WorkspaceSwitcher({
             {t('auth.twoFactorTitle')}
           </DropdownMenuItem>
           <DropdownMenuItem
+            onClick={onPasskeys}
+            className="flex items-center gap-2"
+          >
+            <Fingerprint size={14} />
+            {t('auth.passkeysTitle')}
+          </DropdownMenuItem>
+          <DropdownMenuItem
             disabled={backingUp}
             onClick={onBackup}
             className="flex items-center gap-2"
@@ -281,6 +292,13 @@ export function WorkspaceSwitcher({
                 <DropdownMenuLabel className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
                   {t('setup.language')}
                 </DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={() => i18n.changeLanguage('ru')}
+                  className="flex items-center gap-2"
+                >
+                  <span className="flex-1">Русский</span>
+                  {currentLang === 'ru' && <Check size={13} className="text-primary" />}
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => i18n.changeLanguage('pt-BR')}
                   className="flex items-center gap-2"

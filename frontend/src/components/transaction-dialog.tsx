@@ -28,6 +28,7 @@ import { CategorySelect } from '@/components/category-select'
 import { TransactionAttachments } from '@/components/transaction-attachments'
 import type { AttachmentPreview } from '@/components/transaction-attachments'
 import { TransactionSplitsSection } from '@/components/transaction-splits-section'
+import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import type { Transaction, RecurringTransaction, TransactionSplitsInput, CategoryGroup, Category } from '@/types'
 import { toast } from 'sonner'
 
@@ -318,6 +319,7 @@ function TransactionForm({
 }) {
   const { t } = useTranslation()
   const { user } = useAuth()
+  const { privacyMode, MASK } = usePrivacyMode()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const dateLocale = useDateLocale()
   const { data: supportedCurrencies } = useQuery({
@@ -377,6 +379,13 @@ function TransactionForm({
   })
   const isCreating = !transaction
   const showConversion = currency !== userCurrency && !isSynced
+  // Privacy mode hides monetary values across the app, but the edit modal
+  // surfaced the raw amount anyway (issue #323). Only existing transactions
+  // carry a value worth hiding — when creating, the user must see what they
+  // type. A reveal toggle keeps the field editable when needed.
+  const [revealAmounts, setRevealAmounts] = useState(false)
+  const canHideAmounts = privacyMode && !isCreating
+  const hideAmounts = canHideAmounts && !revealAmounts
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [pendingDragOver, setPendingDragOver] = useState(false)
   const pendingFileInputRef = useRef<HTMLInputElement>(null)
@@ -635,15 +644,38 @@ function TransactionForm({
       </div>
       <div className="grid grid-cols-3 gap-4">
         <div className="space-y-2">
-          <Label>{t('transactions.amount')}</Label>
-          <Input
-            type="number"
-            step="0.01"
-            value={amount}
-            onChange={(e) => handleAmountChange(e.target.value)}
-            required
-            disabled={isSynced}
-          />
+          <div className="flex items-center justify-between min-h-5">
+            <Label>{t('transactions.amount')}</Label>
+            {canHideAmounts && (
+              <button
+                type="button"
+                onClick={() => setRevealAmounts((v) => !v)}
+                className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                title={revealAmounts ? t('privacy.hide') : t('privacy.show')}
+                aria-label={revealAmounts ? t('privacy.hide') : t('privacy.show')}
+              >
+                {revealAmounts ? <EyeClosed size={14} /> : <Eye size={14} />}
+              </button>
+            )}
+          </div>
+          {hideAmounts ? (
+            <Input
+              type="text"
+              value={MASK}
+              readOnly
+              tabIndex={-1}
+              className="bg-muted/40 text-muted-foreground cursor-default select-none"
+            />
+          ) : (
+            <Input
+              type="number"
+              step="0.01"
+              value={amount}
+              onChange={(e) => handleAmountChange(e.target.value)}
+              required
+              disabled={isSynced}
+            />
+          )}
         </div>
         <div className="space-y-2">
           <Label>{t('transactions.currency')}</Label>
@@ -683,13 +715,23 @@ function TransactionForm({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
               <Label className="text-xs">{t('transactions.convertedAmount', { currency: userCurrency })}</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={convertedAmount}
-                onChange={(e) => handleConvertedAmountChange(e.target.value)}
-                placeholder={t('transactions.autoCalculated')}
-              />
+              {hideAmounts ? (
+                <Input
+                  type="text"
+                  value={MASK}
+                  readOnly
+                  tabIndex={-1}
+                  className="bg-muted/40 text-muted-foreground cursor-default select-none"
+                />
+              ) : (
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={convertedAmount}
+                  onChange={(e) => handleConvertedAmountChange(e.target.value)}
+                  placeholder={t('transactions.autoCalculated')}
+                />
+              )}
             </div>
             <div className="space-y-1">
               <Label className="text-xs">{t('transactions.exchangeRate')}</Label>
@@ -887,12 +929,12 @@ function TransactionForm({
       </div>
 
       <DialogFooter className={cn(
-        'shrink-0 border-t pt-4 mt-2',
-        (onDelete || seed?.id) ? 'flex justify-between sm:justify-between' : ''
+        'shrink-0 border-t pt-4 mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between',
+        !(onDelete || seed?.id) ? 'sm:justify-end' : ''
       )}>
-        <div className="flex gap-2 items-center">
+        <div className="flex min-w-0 flex-wrap gap-2 items-center">
           {onDelete && (
-            <Button type="button" variant="destructive" onClick={onDelete} disabled={loading}>
+            <Button type="button" variant="destructive" onClick={onDelete} disabled={loading} className="whitespace-nowrap">
               {t('common.delete')}
             </Button>
           )}
@@ -903,7 +945,7 @@ function TransactionForm({
               onClick={handleToggleIgnore}
               disabled={loading || togglingIgnore}
               title={t('transactions.ignoreTransferHint')}
-              className="gap-1.5"
+              className="gap-1.5 whitespace-nowrap"
             >
               {isIgnored ? <Eye size={16} /> : <EyeClosed size={16} />}
               {isIgnored ? t('transactions.unignoreAction') : t('transactions.ignoreAction')}
@@ -914,7 +956,7 @@ function TransactionForm({
               type="button"
               variant="outline"
               onClick={() => onCreateRule(transaction)}
-              className="gap-1.5"
+              className="gap-1.5 whitespace-nowrap"
               title={t('transactions.createRule')}
             >
               <SlidersHorizontal size={16} />
@@ -922,8 +964,8 @@ function TransactionForm({
             </Button>
           )}
         </div>
-        <div className="flex gap-2">
-          <Button type="button" variant="outline" onClick={onCancel}>
+        <div className="flex flex-wrap gap-2 justify-end sm:ml-auto">
+          <Button type="button" variant="outline" onClick={onCancel} className="whitespace-nowrap">
             {t('common.cancel')}
           </Button>
           {showSaveVariants ? (
@@ -931,7 +973,7 @@ function TransactionForm({
               <Button
                 type="submit"
                 disabled={loading || !splitsValid}
-                className="rounded-r-none"
+                className="rounded-r-none whitespace-nowrap"
               >
                 {loading ? t('common.loading') : t('common.save')}
               </Button>
@@ -957,7 +999,7 @@ function TransactionForm({
               </DropdownMenu>
             </div>
           ) : (
-            <Button type="submit" disabled={loading || !splitsValid}>
+            <Button type="submit" disabled={loading || !splitsValid} className="whitespace-nowrap">
               {loading ? t('common.loading') : t('common.save')}
             </Button>
           )}

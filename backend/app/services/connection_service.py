@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.models.asset import Asset
+from app.models.asset_transaction import AssetTransaction
 from app.models.asset_group import AssetGroup
 from app.models.asset_value import AssetValue
 from app.models.bank_connection import BankConnection
@@ -28,6 +29,7 @@ from app.providers.base import (
 )
 from app.services import oauth_state
 from app.services import admin_service
+from app.services import asset_transaction_service
 from app.services.account_service import sync_opening_balance_for_connected_account
 from app.services.asset_group_service import ensure_group_for_connection
 from app.services.credit_card_service import apply_effective_date
@@ -49,6 +51,44 @@ def _clean_logo_url(value: object) -> Optional[str]:
     integration can never write junk into ``bank_connections.logo_url``.
     """
     return value if isinstance(value, str) and value.strip() else None
+
+
+def _provider_kind(provider: object) -> str:
+    kind = getattr(provider, "kind", "banking")
+    return kind if isinstance(kind, str) and kind else "banking"
+
+
+def _trading212_settings(connection: BankConnection) -> dict:
+    return dict((connection.settings or {}).get("trading212") or {})
+
+
+def _trading212_history_import_enabled(connection: BankConnection) -> bool:
+    # Default to the previous behavior: import history unless the user
+    # explicitly disabled the Trading 212 history option.
+    return _trading212_settings(connection).get("history_import_enabled") is not False
+
+
+def _trading212_history_start(connection: BankConnection) -> Optional[date]:
+    raw = _trading212_settings(connection).get("history_start")
+    if isinstance(raw, datetime):
+        return raw.date()
+    if isinstance(raw, date):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            return date.fromisoformat(raw.strip()[:10])
+        except ValueError:
+            return None
+    return None
+
+
+def _later_date(left: Optional[date], right: Optional[date]) -> Optional[date]:
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return max(left, right)
+
 
 PLUGGY_CATEGORY_MAP = {
     "Eating out": "Alimentação",
@@ -323,6 +363,190 @@ async def _upsert_asset_value_for_today(
         )
 
 
+def _parse_t212_fill_date(value: object) -> date:
+    text = str(value or "").strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(text).date()
+    except ValueError:
+        return date.today()
+
+
+def _decimal(value: object) -> Decimal:
+    try:
+        return Decimal(str(value or 0))
+    except (InvalidOperation, ValueError, TypeError):
+        return Decimal("0")
+
+
+async def _upsert_trading212_trade_settlement(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    account: Account,
+    raw_item: dict,
+    fill_id: object,
+    side: str,
+    fill_date: date,
+) -> None:
+    wallet = (raw_item.get("fill") or {}).get("walletImpact") or {}
+    net_value = _decimal(wallet.get("netValue"))
+    if net_value == 0:
+        return
+    external_id = f"t212:settlement:{fill_id}"
+    existing = (await session.execute(
+        select(Transaction).where(
+            Transaction.account_id == account.id,
+            Transaction.external_id == external_id,
+        )
+    )).scalar_one_or_none()
+    values = {
+        "description": f"Trading 212 trade settlement {side.lower()}",
+        "amount": abs(net_value),
+        "currency": wallet.get("currency") or account.currency,
+        "date": fill_date,
+        "type": "debit" if side == "BUY" else "credit",
+        "source": "sync",
+        "status": "posted",
+        "raw_data": {"trading212": {"source": "history/orders:settlement", "payload": raw_item}},
+        "is_ignored": True,
+    }
+    if existing is None:
+        tx = Transaction(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            account_id=account.id,
+            external_id=external_id,
+            **values,
+        )
+        apply_effective_date(tx, account)
+        session.add(tx)
+    else:
+        for key, value in values.items():
+            setattr(existing, key, value)
+        apply_effective_date(existing, account)
+
+
+async def _sync_trading212_order_history(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    connection: BankConnection,
+    provider,
+    credentials: dict,
+    cash_account: Optional[Account],
+    since: Optional[date] = None,
+) -> None:
+    if connection.provider != "trading212" or not hasattr(provider, "get_historical_orders"):
+        return
+    try:
+        orders = await provider.get_historical_orders(credentials)
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to fetch Trading 212 historical orders for %s", connection.id)
+        return
+
+    group = await ensure_group_for_connection(
+        session,
+        user_id=user_id,
+        connection_id=connection.id,
+        source=connection.provider,
+        external_id=connection.external_id,
+        default_name=connection.institution_name,
+    )
+    touched_assets: dict[uuid.UUID, Asset] = {}
+    for item in orders:
+        if not isinstance(item, dict):
+            continue
+        order = item.get("order") or {}
+        fill = item.get("fill") or {}
+        if fill.get("type") != "TRADE":
+            continue
+        fill_id = fill.get("id")
+        instrument = order.get("instrument") or {}
+        ticker = order.get("ticker") or instrument.get("ticker")
+        side = str(order.get("side") or "").upper()
+        if not fill_id or not ticker or side not in {"BUY", "SELL"}:
+            continue
+
+        asset_external_id = f"trading212:position:{ticker}"
+        asset = (await session.execute(
+            select(Asset).where(
+                Asset.user_id == user_id,
+                Asset.source == "trading212",
+                Asset.external_id == asset_external_id,
+                or_(Asset.connection_id == connection.id, Asset.connection_id.is_(None)),
+            )
+        )).scalar_one_or_none()
+        if asset is None:
+            asset = Asset(
+                user_id=user_id,
+                workspace_id=connection.workspace_id,
+                connection_id=connection.id,
+                group_id=group.id,
+                source="trading212",
+                external_id=asset_external_id,
+                name=instrument.get("name") or ticker,
+                type="investment",
+                currency=order.get("currency") or instrument.get("currency") or "EUR",
+                ticker=ticker,
+                isin=instrument.get("isin"),
+                valuation_method="manual",
+                external_metadata={"trading212": {"instrument": instrument}},
+            )
+            session.add(asset)
+            await session.flush()
+        else:
+            asset.connection_id = connection.id
+            if asset.group_id is None:
+                asset.group_id = group.id
+            if instrument.get("isin"):
+                asset.isin = instrument.get("isin")
+
+        tx_external_id = f"t212:fill:{fill_id}"
+        tx = (await session.execute(
+            select(AssetTransaction).where(
+                AssetTransaction.asset_id == asset.id,
+                AssetTransaction.external_id == tx_external_id,
+            )
+        )).scalar_one_or_none()
+        taxes = (fill.get("walletImpact") or {}).get("taxes") or []
+        fee = sum((_decimal(tax.get("quantity")) for tax in taxes if isinstance(tax, dict)), Decimal("0"))
+        fill_date = _parse_t212_fill_date(fill.get("filledAt"))
+        if since is not None and fill_date < since:
+            continue
+        values = {
+            "kind": "buy" if side == "BUY" else "sell",
+            "quantity": abs(_decimal(fill.get("quantity"))),
+            "price": abs(_decimal(fill.get("price"))),
+            "fee": abs(fee),
+            "date": fill_date,
+            "source": "trading212",
+            "raw_data": {"order": order, "fill": fill},
+        }
+        if tx is None:
+            session.add(
+                AssetTransaction(
+                    asset_id=asset.id,
+                    workspace_id=connection.workspace_id,
+                    external_id=tx_external_id,
+                    **values,
+                )
+            )
+        else:
+            for key, value in values.items():
+                setattr(tx, key, value)
+
+        if cash_account is not None:
+            await _upsert_trading212_trade_settlement(
+                session, user_id, connection.workspace_id, cash_account, item, fill_id, side, fill_date
+            )
+        touched_assets[asset.id] = asset
+
+    await session.flush()
+    for asset in touched_assets.values():
+        await asset_transaction_service.recompute_and_cache(session, asset)
+
+
 async def _match_pluggy_category(
     session: AsyncSession,
     workspace_id: uuid.UUID,
@@ -470,6 +694,18 @@ async def update_connection_settings(
         connection.display_name = trimmed or None
 
     current = dict(connection.settings or {})
+    trading212_settings = dict(current.get("trading212") or {})
+    if "trading212_history_import_enabled" in settings_update:
+        trading212_settings["history_import_enabled"] = settings_update.pop(
+            "trading212_history_import_enabled"
+        )
+    if "trading212_history_start" in settings_update:
+        trading212_settings["history_start"] = settings_update.pop(
+            "trading212_history_start"
+        )
+    if trading212_settings:
+        current["trading212"] = trading212_settings
+
     for key, value in settings_update.items():
         if value is not None:
             current[key] = value
@@ -517,6 +753,7 @@ async def handle_oauth_callback(
         )
         existing.logo_url = _clean_logo_url(connection_data.logo_url) or existing.logo_url
         existing.credentials = connection_data.credentials
+        existing.kind = _provider_kind(provider)
         existing.status = "active"
         # Re-sync from current data on next sync cycle.
         existing.last_sync_at = None
@@ -530,6 +767,7 @@ async def handle_oauth_callback(
         provider=provider_name,
         external_id=connection_data.external_id,
         institution_name=connection_data.institution_name,
+        kind=_provider_kind(provider),
         logo_url=_clean_logo_url(connection_data.logo_url),
         credentials=connection_data.credentials,
         settings={"flow_params": state_payload.get("flow_params") or {}},
@@ -561,6 +799,7 @@ async def handle_oauth_callback(
             minimum_payment=acc_data.minimum_payment if is_cc else None,
             card_brand=acc_data.card_brand if is_cc else None,
             card_level=acc_data.card_level if is_cc else None,
+            external_metadata=acc_data.metadata,
         )
         session.add(account)
         await session.flush()
@@ -625,6 +864,7 @@ async def handle_oauth_callback(
                 payee=txn_data.payee,
                 payee_id=payee_id,
                 raw_data=txn_data.raw_data,
+                is_ignored=txn_data.is_ignored,
                 category_id=category_id,
                 installment_number=txn_data.installment_number,
                 total_installments=txn_data.total_installments,
@@ -1148,6 +1388,13 @@ async def sync_connection(
         new_tx_ids: list[uuid.UUID] = []
         merged_count = 0
         accounts_data = await provider.get_accounts(credentials)
+        trading212_cash_account: Optional[Account] = None
+        trading212_history_enabled = True
+        trading212_history_start: Optional[date] = None
+        trading212_order_since: Optional[date] = None
+        if connection.provider == "trading212":
+            trading212_history_enabled = _trading212_history_import_enabled(connection)
+            trading212_history_start = _trading212_history_start(connection)
         for acc_data in accounts_data:
             result = await session.execute(
                 select(Account).where(
@@ -1168,6 +1415,9 @@ async def sync_connection(
             if account:
                 account.balance = acc_data.balance
                 account.name = acc_data.name
+                account.currency = acc_data.currency
+                account.type = acc_data.type
+                account.external_metadata = acc_data.metadata
                 if acc_data.type == "credit_card":
                     # Preserve existing CC metadata when the provider doesn't
                     # expose it. Pluggy's creditData fields (limit, close/due
@@ -1204,9 +1454,13 @@ async def sync_connection(
                     minimum_payment=acc_data.minimum_payment if is_cc else None,
                     card_brand=acc_data.card_brand if is_cc else None,
                     card_level=acc_data.card_level if is_cc else None,
+                    external_metadata=acc_data.metadata,
                 )
                 session.add(account)
                 await session.flush()
+
+            if connection.provider == "trading212" and acc_data.type == "investment":
+                trading212_cash_account = account
 
             # Fetch the bills feed before transactions so transaction → bill
             # FK resolution happens in-memory (no N+1). Empty dict for non-CC
@@ -1225,9 +1479,20 @@ async def sync_connection(
                 if connection.last_sync_at
                 else None
             )
-            transactions_data = await provider.get_transactions(
-                credentials, acc_data.external_id, since, payee_source=payee_source
-            )
+            if connection.provider == "trading212":
+                since = _later_date(since, trading212_history_start)
+                trading212_order_since = since
+                transactions_data = (
+                    await provider.get_transactions(
+                        credentials, acc_data.external_id, since, payee_source=payee_source
+                    )
+                    if trading212_history_enabled
+                    else []
+                )
+            else:
+                transactions_data = await provider.get_transactions(
+                    credentials, acc_data.external_id, since, payee_source=payee_source
+                )
 
             if not import_pending:
                 transactions_data = [t for t in transactions_data if t.status != "pending"]
@@ -1338,6 +1603,7 @@ async def sync_connection(
                     payee=txn_data.payee,
                     payee_id=sync_payee_id,
                     raw_data=txn_data.raw_data,
+                    is_ignored=txn_data.is_ignored,
                     category_id=category_id,
                     installment_number=txn_data.installment_number,
                     total_installments=txn_data.total_installments,
@@ -1369,7 +1635,10 @@ async def sync_connection(
 
             # Reconcile the opening balance after any new transactions land so
             # SUM(all txs) keeps matching account.balance from the provider.
-            await sync_opening_balance_for_connected_account(session, account)
+            # If the user disabled Trading 212 history import, do not create a
+            # synthetic opening-balance transaction for that brokerage account.
+            if connection.provider != "trading212" or trading212_history_enabled:
+                await sync_opening_balance_for_connected_account(session, account)
 
         # Detect transfer pairs among newly synced transactions
         if new_tx_ids:
@@ -1384,6 +1653,16 @@ async def sync_connection(
         # etc.). Errors here are logged but don't fail the sync; a bank
         # connector that doesn't expose /investments shouldn't block the
         # transaction sync that just succeeded.
+        if connection.provider != "trading212" or trading212_history_enabled:
+            await _sync_trading212_order_history(
+                session,
+                user_id,
+                connection,
+                provider,
+                credentials,
+                trading212_cash_account,
+                since=trading212_order_since,
+            )
         await _sync_holdings(session, user_id, connection, credentials)
 
         connection.last_sync_at = datetime.now(timezone.utc)
@@ -1410,13 +1689,16 @@ async def sync_connection(
     except ProviderRateLimited:
         # The bank/aggregator is throttling data requests (PSD2 caps unattended
         # access, commonly ~4/day). The connection is healthy, so don't error
-        # it or 500 the request — skip this run, keep it active, and leave
-        # last_sync_at untouched so the next sync retries the same window.
+        # it or 500 the request.  Also advance last_sync_at as a cooldown marker:
+        # leaving it untouched made stale connections retry on every hourly beat
+        # and on every app restart, which amplified 429s instead of waiting for
+        # the bank's quota window to recover.
         await session.rollback()
         async with session.begin():
             conn = await session.get(BankConnection, connection_id)
             if conn and conn.status != "expired":
                 conn.status = "active"
+                conn.last_sync_at = datetime.now(timezone.utc)
         refreshed = await session.get(BankConnection, connection_id)
         return refreshed, 0
     except Exception:

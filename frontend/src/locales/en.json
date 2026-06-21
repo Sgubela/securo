@@ -525,10 +525,10 @@
     "deleted": "Account deleted",
     "syncDone": "Sync completed",
     "syncError": "Sync failed",
-    "connected": "Bank connected successfully",
-    "connectError": "Failed to connect bank",
+    "connected": "Connection added successfully",
+    "connectError": "Failed to add connection",
     "disconnected": "Connection removed",
-    "confirmDisconnectTitle": "Disconnect bank connection?",
+    "confirmDisconnectTitle": "Disconnect connection?",
     "confirmDisconnectDesc": "This will unlink {{institution}} and remove synced accounts and transactions from the app. This action is irreversible.",
     "viewTransactions": "View transactions",
     "currentBalance": "Current balance",
@@ -551,9 +551,9 @@
     "confirmCloseBank": "This will also stop syncing this account.",
     "mergedCount": "{{count}} transactions merged with synced data",
     "selectConnector": "Select Connector",
-    "selectConnectorDesc": "Choose a bank connection provider",
+    "selectConnectorDesc": "Choose a banking or brokerage provider",
     "connectorNotConfigured": "This connector requires configuration. Set up the required credentials to enable it.",
-    "noConnectorsAvailable": "No bank connectors available",
+    "noConnectorsAvailable": "No connectors available",
     "selectCountry": "Select country",
     "selectCountryDesc": "Choose the country your bank is in",
     "selectBank": "Select bank",
@@ -587,6 +587,20 @@
       "simplefin": {
         "title": "Connect via SimpleFIN",
         "description": "SimpleFIN is a read-only bank data protocol. Go to the SimpleFIN Bridge, pick your bank, and copy the setup token back here."
+      },
+      "trading212": {
+        "title": "Connect Trading 212",
+        "description": "Add your Trading 212 API credentials for read-only brokerage sync.",
+        "readOnlyNotice": "Use a read-only Trading 212 API key with account, portfolio, metadata, history:transactions, history:dividends and history:orders scopes. Do not grant trading/write scopes such as orders:execute or pies:write.",
+        "environment": "Environment",
+        "live": "Live",
+        "demo": "Demo",
+        "apiKeyLabel": "API key",
+        "apiSecretLabel": "API secret",
+        "scopesHelp": "Credentials are stored encrypted and never returned by the API. Securo only calls read endpoints.",
+        "importHistory": "Import history on first sync",
+        "importHistoryHelp": "Imports deposits, withdrawals, fees, dividends, interest exports and order fills when available.",
+        "historyStart": "History start date (optional)"
       }
     },
     "providers": {
@@ -598,7 +612,18 @@
       },
       "simplefin": {
         "description": "US and international banks via SimpleFIN Bridge"
+      },
+      "trading212": {
+        "description": "Read-only Trading 212 brokerage cash, portfolio and history sync"
       }
+    },
+    "connectFinancialConnection": "Connect account",
+    "brokerageConnections": "Brokerage Connections",
+    "noBrokerageConnections": "No brokerage connections",
+    "trading212ReadOnlyNotice": "Trading 212 sync is read-only. Securo imports cash, holdings, dividends, interest and order history, but never places or cancels trades.",
+    "connectionKinds": {
+      "banking": "Banking",
+      "brokerage": "Brokerage"
     }
   },
   "connections": {

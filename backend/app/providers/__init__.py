@@ -22,6 +22,8 @@ KNOWN_PROVIDERS = [
         "display_name": "Pluggy",
         "description": "Open finance provider for Brazilian banks",
         "flow_type": "widget",
+        "kind": "banking",
+        "capabilities": ["accounts", "transactions", "holdings", "bills"],
         "requires_institution_select": False,
     },
     {
@@ -29,6 +31,8 @@ KNOWN_PROVIDERS = [
         "display_name": "Enable Banking",
         "description": "European banks via PSD2 open banking",
         "flow_type": "oauth",
+        "kind": "banking",
+        "capabilities": ["accounts", "transactions"],
         "requires_institution_select": True,
     },
     {
@@ -36,6 +40,17 @@ KNOWN_PROVIDERS = [
         "display_name": "SimpleFIN",
         "description": "US and international banks via SimpleFIN Bridge",
         "flow_type": "token",
+        "kind": "banking",
+        "capabilities": ["accounts", "transactions", "holdings"],
+        "requires_institution_select": False,
+    },
+    {
+        "name": "trading212",
+        "display_name": "Trading 212",
+        "description": "Read-only brokerage portfolio and cash sync",
+        "flow_type": "token",
+        "kind": "brokerage",
+        "capabilities": ["accounts", "holdings"],
         "requires_institution_select": False,
     },
 ]
@@ -58,7 +73,7 @@ def get_provider(name: str) -> BankProvider:
 def list_providers() -> list[dict[str, str]]:
     """Return info about all registered providers."""
     return [
-        {"name": name, "flow_type": cls().flow_type}
+        {"name": name, "flow_type": cls().flow_type, "kind": cls().kind}
         for name, cls in _PROVIDERS.items()
     ]
 
@@ -90,6 +105,9 @@ def _auto_register_providers() -> None:
     if settings.simplefin_enabled:
         from app.providers.simplefin import SimpleFinProvider
         register_provider("simplefin", SimpleFinProvider)
+
+    from app.providers.trading212 import Trading212Provider
+    register_provider("trading212", Trading212Provider)
 
 
 _auto_register_providers()

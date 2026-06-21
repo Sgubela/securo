@@ -105,6 +105,7 @@ export interface BankConnection {
   id: string
   user_id: string
   provider: string
+  kind: 'banking' | 'brokerage' | string
   institution_name: string
   display_name: string | null
   logo_url: string | null
@@ -118,6 +119,10 @@ export interface BankConnection {
 export interface ConnectionSettings {
   payee_source?: 'auto' | 'merchant' | 'payment_data' | 'description' | 'none'
   import_pending?: boolean
+  trading212?: {
+    history_import_enabled?: boolean
+    history_start?: string | null
+  }
 }
 
 export interface Account {

@@ -13,7 +13,13 @@ from app.services import connection_service
 
 logger = logging.getLogger(__name__)
 
-STALE_THRESHOLD = timedelta(hours=4)
+# PSD2 aggregators/banks can throttle unattended account reads aggressively
+# (often around four reads per day per resource).  Syncing every 4h plus
+# startup/manual retries was enough to repeatedly hit Enable Banking 429s,
+# especially for connections that expose many accounts.  Use a conservative
+# 8h stale window for background syncs; user-initiated manual syncs still go
+# through the API path when fresh data is needed.
+STALE_THRESHOLD = timedelta(hours=8)
 
 
 def _make_session_maker():

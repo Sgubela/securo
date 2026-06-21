@@ -525,10 +525,10 @@
     "deleted": "Conto eliminato",
     "syncDone": "Sincronizzazione completata",
     "syncError": "Sincronizzazione fallita",
-    "connected": "Banca collegata con successo",
-    "connectError": "Impossibile collegare la banca",
+    "connected": "Connessione aggiunta correttamente",
+    "connectError": "Impossibile aggiungere la connessione",
     "disconnected": "Connessione rimossa",
-    "confirmDisconnectTitle": "Disconnettere la connessione bancaria?",
+    "confirmDisconnectTitle": "Disconnettere la connessione?",
     "confirmDisconnectDesc": "Questo scollegherà {{institution}} e rimuoverà dall'app i conti e le transazioni sincronizzati. Questa azione è irreversibile.",
     "viewTransactions": "Visualizza transazioni",
     "currentBalance": "Saldo attuale",
@@ -551,9 +551,9 @@
     "confirmCloseBank": "Questo interromperà anche la sincronizzazione di questo conto.",
     "mergedCount": "{{count}} transazioni unite con i dati sincronizzati",
     "selectConnector": "Seleziona connettore",
-    "selectConnectorDesc": "Scegli un provider di connessione bancaria",
+    "selectConnectorDesc": "Scegli un provider bancario o broker",
     "connectorNotConfigured": "Questo connettore richiede configurazione. Imposta le credenziali necessarie per abilitarlo.",
-    "noConnectorsAvailable": "Nessun connettore bancario disponibile",
+    "noConnectorsAvailable": "Nessun connettore disponibile",
     "selectCountry": "Seleziona paese",
     "selectCountryDesc": "Scegli il paese in cui si trova la tua banca",
     "selectBank": "Seleziona banca",
@@ -587,6 +587,20 @@
       "simplefin": {
         "title": "Collega tramite SimpleFIN",
         "description": "SimpleFIN è un protocollo di dati bancari in sola lettura. Vai su SimpleFIN Bridge, scegli la tua banca e copia qui il token di configurazione."
+      },
+      "trading212": {
+        "title": "Collega Trading 212",
+        "description": "Aggiungi le credenziali API Trading 212 per la sincronizzazione broker in sola lettura.",
+        "readOnlyNotice": "Usa una chiave API Trading 212 in sola lettura con scope account, portfolio, metadata, history:transactions, history:dividends e history:orders. Non concedere scope di trading/scrittura come orders:execute o pies:write.",
+        "environment": "Ambiente",
+        "live": "Live",
+        "demo": "Demo",
+        "apiKeyLabel": "Chiave API",
+        "apiSecretLabel": "Segreto API",
+        "scopesHelp": "Le credenziali sono archiviate cifrate e non vengono mai restituite dall’API. Securo chiama solo endpoint di lettura.",
+        "importHistory": "Importa cronologia alla prima sincronizzazione",
+        "importHistoryHelp": "Importa depositi, prelievi, commissioni, dividendi, esportazioni interessi ed esecuzioni ordini quando disponibili.",
+        "historyStart": "Data iniziale cronologia (opzionale)"
       }
     },
     "providers": {
@@ -598,7 +612,18 @@
       },
       "simplefin": {
         "description": "Banche statunitensi e internazionali tramite SimpleFIN Bridge"
+      },
+      "trading212": {
+        "description": "Sincronizzazione in sola lettura di liquidità, portafoglio e cronologia Trading 212"
       }
+    },
+    "connectFinancialConnection": "Collega conto",
+    "brokerageConnections": "Connessioni broker",
+    "noBrokerageConnections": "Nessuna connessione broker",
+    "trading212ReadOnlyNotice": "La sincronizzazione Trading 212 è in sola lettura. Securo importa liquidità, posizioni, dividendi, interessi e cronologia ordini, ma non inserisce né annulla operazioni.",
+    "connectionKinds": {
+      "banking": "Banca",
+      "brokerage": "Broker"
     }
   },
   "connections": {

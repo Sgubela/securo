@@ -214,7 +214,23 @@ export default function AccountsPage() {
 
   const isLoading = accountsLoading || connectionsLoading
   const manualAccounts = accountsList?.filter((a) => a.connection_id === null) ?? []
-  const bankAccounts = accountsList?.filter((a) => a.connection_id !== null) ?? []
+  const connectedAccounts = accountsList?.filter((a) => a.connection_id !== null) ?? []
+  const bankingConnections = connectionsList?.filter((conn) => conn.kind !== 'brokerage') ?? []
+  const brokerageConnections = connectionsList?.filter((conn) => conn.kind === 'brokerage') ?? []
+  const connectionSections = [
+    {
+      key: 'banking',
+      title: t('accounts.bankConnections'),
+      empty: t('accounts.noBankConnections'),
+      connections: bankingConnections,
+    },
+    {
+      key: 'brokerage',
+      title: t('accounts.brokerageConnections'),
+      empty: t('accounts.noBrokerageConnections'),
+      connections: brokerageConnections,
+    },
+  ]
 
   return (
     <div className="space-y-6">
@@ -231,7 +247,7 @@ export default function AccountsPage() {
               <>
                 <Button variant="outline" className="gap-1.5" onClick={() => setConnectorSelectOpen(true)}>
                   <Plus size={16} />
-                  {t('accounts.connectBank')}
+                  {t('accounts.connectFinancialConnection')}
                 </Button>
                 <Button onClick={() => { setEditingAccount(null); setDialogOpen(true) }} className="gap-1.5">
                   <Plus size={16} />
@@ -330,162 +346,177 @@ export default function AccountsPage() {
             )}
           </div>
 
-          {/* Bank Connections */}
-          {connectionsList && connectionsList.length > 0 ? (
-            <div className="space-y-3">
-              {connectionsList.map((conn) => {
-                const connAccounts = bankAccounts.filter((a) => a.connection_id === conn.id)
-                return (
-                  <div key={conn.id} className="bg-card rounded-xl border border-border shadow-sm">
-                    {/* Connection header */}
-                    <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
-                      <div className="flex items-center gap-3">
-                        <ConnectionLogo logoUrl={conn.logo_url} />
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-semibold text-foreground">{getConnectionName(conn)}</p>
-                            <Badge
-                              variant={conn.status === 'active' ? 'default' : 'secondary'}
-                              className="text-[10px] px-1.5 py-0 h-4"
-                            >
-                              {conn.status}
-                            </Badge>
-                          </div>
-                          {conn.last_sync_at && (
-                            <p className="text-[11px] text-muted-foreground mt-0.5">
-                              {t('accounts.lastSync')}: {new Date(conn.last_sync_at).toLocaleString(dateLocale)}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      {canWrite && (
-                        <div className="flex items-center gap-1.5">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-                            onClick={() => setSettingsConnection(conn)}
-                          >
-                            <Settings size={14} />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-                            onClick={() => syncMutation.mutate(conn.id)}
-                            disabled={syncMutation.isPending}
-                          >
-                            <RefreshCw size={14} className={syncMutation.isPending ? 'animate-spin' : ''} />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0 text-muted-foreground hover:text-rose-500"
-                            onClick={() => setDisconnectingConnection(conn)}
-                            disabled={disconnectMutation.isPending}
-                          >
-                            <Unlink size={14} />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                    {/* Reconnect banner */}
-                    {conn.status !== 'active' && (
-                      <div className="mx-5 mt-3 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
-                        <span className="text-sm text-amber-800">
-                          {conn.status === 'expired'
-                            ? t('accounts.connectionExpired')
-                            : t('accounts.connectionError')}
-                        </span>
-                        {canWrite && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="border-amber-300 text-amber-700 hover:bg-amber-100 gap-1.5 h-8"
-                            onClick={() => handleReconnectClick(conn)}
-                          >
-                            <RefreshCw size={12} />
-                            {t('accounts.reconnect')}
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                    {/* Accounts list */}
-                    {connAccounts.length > 0 ? (
-                      <div className="divide-y divide-muted">
-                        {connAccounts.map((acc) => {
-                          const cfg = getAccountTypeConfig(acc.type)
-                          const bal = Number(acc.current_balance)
-                          const isCC = acc.type === 'credit_card'
-                          const dueIn = isCC ? daysUntil(acc.next_due_date) : null
-                          const dueText =
-                            dueIn == null ? null
-                              : dueIn < 0 ? t('accounts.overdue')
-                              : dueIn === 0 ? t('accounts.dueToday')
-                              : t('accounts.dueIn', { count: dueIn })
-                          const dueClass = dueIn != null && dueIn <= 3 ? 'text-amber-600' : 'text-muted-foreground'
-                          return (
-                            <div key={acc.id} className="group flex items-center px-5 py-3 hover:bg-muted/50 transition-colors">
-                              <Link to={`/accounts/${acc.id}`} className="flex items-center gap-3 flex-1 min-w-0">
-                                <AccountIcon account={acc} />
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-medium text-foreground truncate">{getAccountName(acc)}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {t(cfg.label)}
-                                    {dueText && <> · <span className={dueClass}>{dueText}</span></>}
-                                  </p>
-                                </div>
-                              </Link>
-                              {canWrite && (
-                                <div className="flex items-center gap-1 mr-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <button
-                                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                                    onClick={(e) => { e.preventDefault(); setEditingAccount(acc); setDialogOpen(true) }}
-                                    title={t('common.edit')}
-                                  >
-                                    <Pencil size={13} />
-                                  </button>
-                                  <button
-                                    className="p-1.5 rounded-md text-muted-foreground hover:text-amber-600 hover:bg-amber-50 transition-colors"
-                                    onClick={(e) => { e.preventDefault(); setClosingAccountId(acc.id) }}
-                                    title={t('accounts.close')}
-                                  >
-                                    <Archive size={13} />
-                                  </button>
-                                </div>
-                              )}
-                              <div className="text-right">
-                                <p className={`text-xs sm:text-sm font-semibold tabular-nums ${(acc.type === 'credit_card' ? bal > 0 : bal < 0) ? 'text-rose-500' : 'text-foreground'}`}>
-                                  {mask(formatCurrency(bal, acc.currency, locale))}
-                                </p>
-                                {isCC && acc.available_credit != null ? (
-                                  <p className="text-[10px] text-muted-foreground tabular-nums">
-                                    {t('accounts.availableCredit')}: {mask(formatCurrency(Number(acc.available_credit), acc.currency, locale))}
-                                  </p>
-                                ) : acc.balance_primary != null && acc.currency !== userCurrency && (
-                                  <p className="text-[10px] text-muted-foreground tabular-nums">
-                                    {mask(formatCurrency(acc.balance_primary, userCurrency, locale))}
-                                  </p>
+          {/* Connected accounts */}
+          <div className="space-y-6">
+            {connectionSections.map((section) => (
+              <div key={section.key} className="space-y-3">
+                <h2 className="px-1 text-sm font-medium text-muted-foreground">{section.title}</h2>
+                {section.connections.length > 0 ? (
+                  section.connections.map((conn) => {
+                    const connAccounts = connectedAccounts.filter((a) => a.connection_id === conn.id)
+                    return (
+                      <div key={conn.id} className="bg-card rounded-xl border border-border shadow-sm">
+                        {/* Connection header */}
+                        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
+                          <div className="flex items-center gap-3">
+                            <ConnectionLogo logoUrl={conn.logo_url} />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-semibold text-foreground">{getConnectionName(conn)}</p>
+                                <Badge
+                                  variant={conn.status === 'active' ? 'default' : 'secondary'}
+                                  className="text-[10px] px-1.5 py-0 h-4"
+                                >
+                                  {conn.status}
+                                </Badge>
+                                {conn.kind === 'brokerage' && (
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
+                                    {t('accounts.connectionKinds.brokerage')}
+                                  </Badge>
                                 )}
                               </div>
+                              {conn.last_sync_at && (
+                                <p className="text-[11px] text-muted-foreground mt-0.5">
+                                  {t('accounts.lastSync')}: {new Date(conn.last_sync_at).toLocaleString(dateLocale)}
+                                </p>
+                              )}
                             </div>
-                          )
-                        })}
+                          </div>
+                          {canWrite && (
+                            <div className="flex items-center gap-1.5">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                                onClick={() => setSettingsConnection(conn)}
+                              >
+                                <Settings size={14} />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                                onClick={() => syncMutation.mutate(conn.id)}
+                                disabled={syncMutation.isPending}
+                              >
+                                <RefreshCw size={14} className={syncMutation.isPending ? 'animate-spin' : ''} />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0 text-muted-foreground hover:text-rose-500"
+                                onClick={() => setDisconnectingConnection(conn)}
+                                disabled={disconnectMutation.isPending}
+                              >
+                                <Unlink size={14} />
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                        {conn.provider === 'trading212' && (
+                          <div className="border-b border-border bg-muted/25 px-5 py-2 text-xs text-muted-foreground">
+                            {t('accounts.trading212ReadOnlyNotice')}
+                          </div>
+                        )}
+                        {/* Reconnect banner */}
+                        {conn.status !== 'active' && (
+                          <div className="mx-5 mt-3 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
+                            <span className="text-sm text-amber-800">
+                              {conn.status === 'expired'
+                                ? t('accounts.connectionExpired')
+                                : t('accounts.connectionError')}
+                            </span>
+                            {canWrite && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="border-amber-300 text-amber-700 hover:bg-amber-100 gap-1.5 h-8"
+                                onClick={() => handleReconnectClick(conn)}
+                              >
+                                <RefreshCw size={12} />
+                                {t('accounts.reconnect')}
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                        {/* Accounts list */}
+                        {connAccounts.length > 0 ? (
+                          <div className="divide-y divide-muted">
+                            {connAccounts.map((acc) => {
+                              const cfg = getAccountTypeConfig(acc.type)
+                              const bal = Number(acc.current_balance)
+                              const isCC = acc.type === 'credit_card'
+                              const dueIn = isCC ? daysUntil(acc.next_due_date) : null
+                              const dueText =
+                                dueIn == null ? null
+                                  : dueIn < 0 ? t('accounts.overdue')
+                                  : dueIn === 0 ? t('accounts.dueToday')
+                                  : t('accounts.dueIn', { count: dueIn })
+                              const dueClass = dueIn != null && dueIn <= 3 ? 'text-amber-600' : 'text-muted-foreground'
+                              return (
+                                <div key={acc.id} className="group flex items-center px-5 py-3 hover:bg-muted/50 transition-colors">
+                                  <Link to={`/accounts/${acc.id}`} className="flex items-center gap-3 flex-1 min-w-0">
+                                    <AccountIcon account={acc} />
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-sm font-medium text-foreground truncate">{getAccountName(acc)}</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        {t(cfg.label)}
+                                        {dueText && <> · <span className={dueClass}>{dueText}</span></>}
+                                      </p>
+                                    </div>
+                                  </Link>
+                                  {canWrite && (
+                                    <div className="flex items-center gap-1 mr-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <button
+                                        className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                                        onClick={(e) => { e.preventDefault(); setEditingAccount(acc); setDialogOpen(true) }}
+                                        title={t('common.edit')}
+                                      >
+                                        <Pencil size={13} />
+                                      </button>
+                                      <button
+                                        className="p-1.5 rounded-md text-muted-foreground hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                                        onClick={(e) => { e.preventDefault(); setClosingAccountId(acc.id) }}
+                                        title={t('accounts.close')}
+                                      >
+                                        <Archive size={13} />
+                                      </button>
+                                    </div>
+                                  )}
+                                  <div className="text-right">
+                                    <p className={`text-xs sm:text-sm font-semibold tabular-nums ${(acc.type === 'credit_card' ? bal > 0 : bal < 0) ? 'text-rose-500' : 'text-foreground'}`}>
+                                      {mask(formatCurrency(bal, acc.currency, locale))}
+                                    </p>
+                                    {isCC && acc.available_credit != null ? (
+                                      <p className="text-[10px] text-muted-foreground tabular-nums">
+                                        {t('accounts.availableCredit')}: {mask(formatCurrency(Number(acc.available_credit), acc.currency, locale))}
+                                      </p>
+                                    ) : acc.balance_primary != null && acc.currency !== userCurrency && (
+                                      <p className="text-[10px] text-muted-foreground tabular-nums">
+                                        {mask(formatCurrency(acc.balance_primary, userCurrency, locale))}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <div className="px-5 py-4">
+                            <p className="text-sm text-muted-foreground">{t('accounts.noAccountsFound')}</p>
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      <div className="px-5 py-4">
-                        <p className="text-sm text-muted-foreground">{t('accounts.noAccountsFound')}</p>
-                      </div>
-                    )}
+                    )
+                  })
+                ) : (
+                  <div className="bg-card rounded-xl border border-dashed border-border p-8 text-center">
+                    <p className="text-sm text-muted-foreground">{section.empty}</p>
                   </div>
-                )
-              })}
-            </div>
-          ) : (
-            <div className="bg-card rounded-xl border border-dashed border-border p-8 text-center">
-              <p className="text-sm text-muted-foreground">{t('accounts.noBankConnections')}</p>
-            </div>
-          )}
+                )}
+              </div>
+            ))}
+          </div>
 
           {/* Closed Accounts */}
           {closedAccounts.length > 0 && (

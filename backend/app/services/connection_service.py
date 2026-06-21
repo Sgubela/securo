@@ -1689,13 +1689,16 @@ async def sync_connection(
     except ProviderRateLimited:
         # The bank/aggregator is throttling data requests (PSD2 caps unattended
         # access, commonly ~4/day). The connection is healthy, so don't error
-        # it or 500 the request — skip this run, keep it active, and leave
-        # last_sync_at untouched so the next sync retries the same window.
+        # it or 500 the request.  Also advance last_sync_at as a cooldown marker:
+        # leaving it untouched made stale connections retry on every hourly beat
+        # and on every app restart, which amplified 429s instead of waiting for
+        # the bank's quota window to recover.
         await session.rollback()
         async with session.begin():
             conn = await session.get(BankConnection, connection_id)
             if conn and conn.status != "expired":
                 conn.status = "active"
+                conn.last_sync_at = datetime.now(timezone.utc)
         refreshed = await session.get(BankConnection, connection_id)
         return refreshed, 0
     except Exception:

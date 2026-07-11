@@ -1,7 +1,7 @@
 """add asset group tracking to goals
 
-Revision ID: 063
-Revises: 062
+Revision ID: 063_2
+Revises: 063
 Create Date: 2026-06-20
 """
 from typing import Sequence, Union
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "063"
-down_revision: Union[str, None] = "062"
+revision: str = "063_2"
+down_revision: Union[str, None] = "063"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

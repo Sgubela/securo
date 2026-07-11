@@ -294,7 +294,7 @@ export const connections = {
     const { data } = await api.get('/connections')
     return data
   },
-  getProviders: async (): Promise<{ name: string; display_name: string; description: string; flow_type: string; configured: boolean; kind?: string; capabilities?: string[]; requires_institution_select?: boolean }[]> => {
+  getProviders: async (): Promise<{ name: string; display_name: string; description: string; flow_type: string; configured: boolean; kind?: string; capabilities?: string[]; requires_institution_select?: boolean; supports_asset_sync?: boolean }[]> => {
     const { data } = await api.get('/connections/providers')
     return data.providers
   },
@@ -327,8 +327,20 @@ export const connections = {
     })
     return data
   },
-  handleCallback: async (code: string, provider: string, state?: string): Promise<BankConnection> => {
-    const { data } = await api.post('/connections/oauth/callback', { code, provider, state })
+  handleCallback: async (
+    code: string,
+    provider: string,
+    state?: string,
+    settings?: Pick<ConnectionSettings, 'sync_assets'>,
+    reconnectConnectionId?: string,
+  ): Promise<BankConnection> => {
+    const { data } = await api.post('/connections/oauth/callback', {
+      code,
+      provider,
+      state,
+      reconnect_connection_id: reconnectConnectionId,
+      ...settings,
+    })
     return data
   },
   getReauthUrl: async (connectionId: string): Promise<string> => {
@@ -463,6 +475,10 @@ export const transactions = {
   },
   toggleIgnore: async (id: string): Promise<Transaction> => {
     const { data } = await api.patch(`/transactions/${id}/ignore`)
+    return data
+  },
+  unlinkRecurring: async (id: string): Promise<Transaction> => {
+    const { data } = await api.patch(`/transactions/${id}/unlink-recurring`)
     return data
   },
   createTransfer: async (transfer: {
@@ -633,8 +649,9 @@ export const transactions = {
 
 // Payees
 export const payees = {
-  list: async (): Promise<Payee[]> => {
-    const { data } = await api.get('/payees')
+  list: async (params?: { q?: string; type?: string; is_favorite?: boolean } | Record<string, unknown>): Promise<Payee[]> => {
+    const cleanParams = params && !('queryKey' in params) ? params : undefined
+    const { data } = await api.get('/payees', { params: cleanParams })
     return data
   },
   get: async (id: string): Promise<Payee> => {
@@ -798,7 +815,7 @@ export const rules = {
     const { data } = await api.post('/rules', rule)
     return data
   },
-  update: async (id: string, rule: Partial<Rule>): Promise<Rule> => {
+  update: async (id: string, rule: Partial<Rule>): Promise<Rule & { applied_count: number }> => {
     const { data } = await api.patch(`/rules/${id}`, rule)
     return data
   },
@@ -1246,7 +1263,7 @@ export const search = {
 
 // App-level feature flags (whether optional modules like agents are mounted)
 export interface AppInfo {
-  features: { agents: boolean }
+  features: { agents: boolean; tesouro_direto?: boolean }
 }
 
 export const info = {
@@ -1371,6 +1388,7 @@ export const agents = {
       default_similarity_threshold: number
       extra_mcp_servers_configured: boolean
       mcp_external_ttl_days: number
+      external_mcp_url: string
     }
   },
   mcpTokens: {

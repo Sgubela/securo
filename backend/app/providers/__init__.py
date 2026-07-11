@@ -25,6 +25,7 @@ KNOWN_PROVIDERS = [
         "kind": "banking",
         "capabilities": ["accounts", "transactions", "holdings", "bills"],
         "requires_institution_select": False,
+        "supports_asset_sync": True,
     },
     {
         "name": "enable_banking",
@@ -34,6 +35,7 @@ KNOWN_PROVIDERS = [
         "kind": "banking",
         "capabilities": ["accounts", "transactions"],
         "requires_institution_select": True,
+        "supports_asset_sync": False,
     },
     {
         "name": "simplefin",
@@ -43,6 +45,7 @@ KNOWN_PROVIDERS = [
         "kind": "banking",
         "capabilities": ["accounts", "transactions", "holdings"],
         "requires_institution_select": False,
+        "supports_asset_sync": True,
     },
     {
         "name": "trading212",
@@ -52,6 +55,7 @@ KNOWN_PROVIDERS = [
         "kind": "brokerage",
         "capabilities": ["accounts", "holdings"],
         "requires_institution_select": False,
+        "supports_asset_sync": True,
     },
 ]
 

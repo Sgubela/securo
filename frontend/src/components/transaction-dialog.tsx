@@ -1,35 +1,47 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { getAccountName } from '@/lib/account-utils'
 import { useTranslation } from 'react-i18next'
 import { useDateLocale } from '@/hooks/use-display-locale'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/auth-context'
-import { currencies as currenciesApi, transactions as transactionsApi, settings as settingsApi, payees as payeesApi } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { currencies as currenciesApi, transactions as transactionsApi, settings as settingsApi, payees as payeesApi, rules as rulesApi } from '@/lib/api'
+import { invalidateFinancialQueries } from '@/lib/invalidate-queries'
+import { normalizeRuleMatchValue } from '@/lib/rule-match-utils'
+import { cn, normalizeText } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { DatePickerInput } from '@/components/ui/date-picker-input'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { AlertTriangle, ChevronDown, ChevronLeft, Download, Eye, EyeClosed, Paperclip, Upload, X, FileText, Plus, Unlink, SlidersHorizontal } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronLeft, Download, Eye, EyeClosed, Paperclip, Upload, X, FileText, Plus, Unlink, SlidersHorizontal, ListPlus, Check } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { CategorySelect } from '@/components/category-select'
 import { TransactionAttachments } from '@/components/transaction-attachments'
 import type { AttachmentPreview } from '@/components/transaction-attachments'
 import { TransactionSplitsSection } from '@/components/transaction-splits-section'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
-import type { Transaction, RecurringTransaction, TransactionSplitsInput, CategoryGroup, Category } from '@/types'
+import type { Transaction, RecurringTransaction, TransactionSplitsInput, CategoryGroup, Category, Rule, RuleCondition } from '@/types'
 import { toast } from 'sonner'
 
 export type SaveAction = 'save' | 'saveAndNew' | 'saveAndDuplicate'
@@ -60,6 +72,14 @@ export function extractApiError(error: unknown): string {
 
 function isImageType(contentType: string): boolean {
   return contentType.startsWith('image/')
+}
+
+function getRuleCategoryId(rule: Rule): string | null {
+  return rule.actions.find(action => action.op === 'set_category' && action.value)?.value ?? null
+}
+
+function canExtendRuleFromTransaction(rule: Rule): boolean {
+  return rule.is_active && !!getRuleCategoryId(rule) && (rule.conditions_op === 'or' || rule.conditions.length <= 1)
 }
 
 export function TransactionDialog({
@@ -318,6 +338,7 @@ function TransactionForm({
   hasPreview: boolean
 }) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const { user } = useAuth()
   const { privacyMode, MASK } = usePrivacyMode()
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
@@ -349,6 +370,9 @@ function TransactionForm({
   )
   const [fxRate, setFxRate] = useState(
     seed?.fx_rate_used != null ? seed.fx_rate_used.toString() : ''
+  )
+  const [hadInitialFx] = useState(
+    !!transaction && (seed?.amount_primary != null || seed?.fx_rate_used != null)
   )
   const [isRecurring, setIsRecurring] = useState(false)
   const [frequency, setFrequency] = useState<'monthly' | 'weekly' | 'yearly'>('monthly')
@@ -405,6 +429,65 @@ function TransactionForm({
   }, [description, isSynced])
   const [isIgnored, setIsIgnored] = useState(seed?.is_ignored ?? false)
   const [togglingIgnore, setTogglingIgnore] = useState(false)
+  const [recurringLinked, setRecurringLinked] = useState(seed?.recurring_transaction_id != null)
+  const [unlinkingRecurring, setUnlinkingRecurring] = useState(false)
+  const [addToRuleOpen, setAddToRuleOpen] = useState(false)
+
+  const { data: rulesList, isLoading: rulesLoading } = useQuery({
+    queryKey: ['rules'],
+    queryFn: rulesApi.list,
+    enabled: !!transaction && !!onCreateRule,
+  })
+  const extendableRules = useMemo(
+    () => (rulesList ?? []).filter(canExtendRuleFromTransaction),
+    [rulesList],
+  )
+
+  const extendRuleMutation = useMutation({
+    mutationFn: async ({
+      rule,
+      condition,
+    }: {
+      rule: Rule
+      condition: RuleCondition
+    }) => {
+      const duplicate = rule.conditions.some(existing =>
+        existing.field === condition.field &&
+        existing.op === condition.op &&
+        normalizeRuleMatchValue(existing.value) === normalizeRuleMatchValue(condition.value)
+      )
+      if (duplicate) {
+        throw new Error('duplicate-condition')
+      }
+
+      return rulesApi.update(rule.id, {
+        conditions_op: rule.conditions.length <= 1 ? 'or' : rule.conditions_op,
+        conditions: [...rule.conditions, condition],
+      })
+    },
+    onSuccess: (updatedRule) => {
+      const targetCategoryId = getRuleCategoryId(updatedRule)
+      if (targetCategoryId) setCategoryId(targetCategoryId)
+      queryClient.invalidateQueries({ queryKey: ['rules'] })
+      const applied = updatedRule.applied_count ?? 0
+      if (applied > 0) {
+        invalidateFinancialQueries(queryClient)
+      }
+      setAddToRuleOpen(false)
+      toast.success(
+        applied > 0
+          ? t('rules.updatedAndApplied', { count: applied })
+          : t('transactions.addedToExistingRule'),
+      )
+    },
+    onError: (error) => {
+      if (error instanceof Error && error.message === 'duplicate-condition') {
+        toast.info(t('transactions.duplicateRuleCondition'))
+      } else {
+        toast.error(t('common.error'))
+      }
+    },
+  })
 
   const handleToggleIgnore = async () => {
     if (!seed?.id || togglingIgnore) return
@@ -420,6 +503,21 @@ function TransactionForm({
       toast.error(t('common.error'))
     } finally {
       setTogglingIgnore(false)
+    }
+  }
+
+  const handleUnlinkRecurring = async () => {
+    if (!seed?.id || unlinkingRecurring) return
+    setUnlinkingRecurring(true)
+    try {
+      await transactionsApi.unlinkRecurring(seed.id)
+      setRecurringLinked(false)
+      toast.success(t('transactions.recurringUnlinkSuccess'))
+      onIgnoreChanged?.()
+    } catch {
+      toast.error(t('common.error'))
+    } finally {
+      setUnlinkingRecurring(false)
     }
   }
 
@@ -522,6 +620,10 @@ function TransactionForm({
         if (showConversion && fxRate) {
           fxFields.fx_rate_used = parseFloat(fxRate)
         }
+        if (showConversion && hadInitialFx && !convertedAmount && !fxRate) {
+          fxFields.amount_primary = null
+          fxFields.fx_rate_used = null
+        }
         // Active CC account ⇒ surface effective_bill_date in the payload
         // (sent both for synced and manual edits since the user can hand-
         // correct the bucketing on either; null clears the override back to
@@ -619,6 +721,22 @@ function TransactionForm({
             frequency: t(`recurring.${recurringMatch.frequency}`),
             next: new Date(recurringMatch.next_occurrence).toLocaleDateString(dateLocale),
           })}</span>
+        </div>
+      )}
+      {recurringLinked && !isCreating && (
+        <div className="flex items-center justify-between gap-2 p-3 text-sm bg-muted/50 border border-border rounded-md">
+          <span className="text-muted-foreground">{t('transactions.recurringLinkedInfo')}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1.5 shrink-0"
+            onClick={handleUnlinkRecurring}
+            disabled={unlinkingRecurring}
+          >
+            <Unlink size={14} />
+            {t('transactions.recurringUnlinkAction')}
+          </Button>
         </div>
       )}
       <div className="space-y-2">
@@ -952,16 +1070,37 @@ function TransactionForm({
             </Button>
           )}
           {transaction && onCreateRule && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onCreateRule(transaction)}
-              className="gap-1.5 whitespace-nowrap"
-              title={t('transactions.createRule')}
-            >
-              <SlidersHorizontal size={16} />
-              {t('transactions.createRule')}
-            </Button>
+            <div className="inline-flex">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onCreateRule(transaction)}
+                className="gap-1.5 rounded-r-none whitespace-nowrap"
+                title={t('transactions.createRule')}
+              >
+                <SlidersHorizontal size={16} />
+                {t('transactions.createRule')}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    aria-label={t('transactions.ruleActions')}
+                    className="rounded-l-none border-l-0 px-2 has-[>svg]:px-2"
+                    disabled={extendRuleMutation.isPending}
+                  >
+                    <ChevronDown />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  <DropdownMenuItem onSelect={() => setAddToRuleOpen(true)}>
+                    <ListPlus size={16} />
+                    {t('transactions.addToExistingRule')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           )}
         </div>
         <div className="flex flex-wrap gap-2 justify-end sm:ml-auto">
@@ -1005,7 +1144,226 @@ function TransactionForm({
           )}
         </div>
       </DialogFooter>
+      {transaction && addToRuleOpen && (
+        <AddTransactionToRuleDialog
+          open={true}
+          onOpenChange={setAddToRuleOpen}
+          transactionDescription={transaction.description}
+          rules={extendableRules}
+          categories={categories}
+          categoryGroups={categoryGroups}
+          loadingRules={rulesLoading}
+          loading={extendRuleMutation.isPending}
+          onSubmit={({ rule, condition }) => extendRuleMutation.mutate({ rule, condition })}
+        />
+      )}
     </form>
+  )
+}
+
+function AddTransactionToRuleDialog({
+  open,
+  onOpenChange,
+  transactionDescription,
+  rules,
+  categories,
+  categoryGroups,
+  loadingRules,
+  loading,
+  onSubmit,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  transactionDescription: string
+  rules: Rule[]
+  categories: Category[]
+  categoryGroups: CategoryGroup[]
+  loadingRules: boolean
+  loading: boolean
+  onSubmit: (data: { rule: Rule; condition: RuleCondition }) => void
+}) {
+  const { t } = useTranslation()
+  const [ruleId, setRuleId] = useState('')
+  const [openCombobox, setOpenCombobox] = useState(false)
+  const [matchOp, setMatchOp] = useState<'contains' | 'starts_with'>('contains')
+  const [matchText, setMatchText] = useState(transactionDescription)
+
+  const effectiveRuleId = ruleId && rules.some(rule => rule.id === ruleId)
+    ? ruleId
+    : rules[0]?.id ?? ''
+  const selectedRule = rules.find(rule => rule.id === effectiveRuleId) ?? null
+
+  const groupedRules = useMemo(() => {
+    const groupsMap: { [categoryId: string]: { categoryName: string; rules: Rule[] } } = {}
+
+    for (const rule of rules) {
+      const categoryId = getRuleCategoryId(rule) ?? 'uncategorized'
+      let categoryName = t('transactions.uncategorized')
+
+      if (categoryId !== 'uncategorized') {
+        const category = categories.find(c => c.id === categoryId)
+        if (category) {
+          categoryName = category.name
+          if (category.group_id) {
+            const group = categoryGroups.find(g => g.id === category.group_id)
+            if (group) {
+              categoryName = `${group.name} > ${category.name}`
+            }
+          }
+        } else {
+          categoryName = t('transactions.category')
+        }
+      }
+
+      if (!groupsMap[categoryId]) {
+        groupsMap[categoryId] = {
+          categoryName,
+          rules: [],
+        }
+      }
+      groupsMap[categoryId].rules.push(rule)
+    }
+
+    return Object.entries(groupsMap).map(([categoryId, data]) => ({
+      categoryId,
+      ...data,
+    }))
+  }, [rules, categories, categoryGroups, t])
+
+  function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    // This dialog renders inside the transaction's <form>; without stopping
+    // propagation the submit event bubbles up the React tree (portals preserve
+    // it) and also triggers the parent transaction save.
+    event.stopPropagation()
+    if (!selectedRule || !matchText.trim()) return
+    onSubmit({
+      rule: selectedRule,
+      condition: {
+        field: 'description',
+        op: matchOp,
+        value: matchText.trim(),
+      },
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('transactions.addToExistingRuleTitle')}</DialogTitle>
+          <DialogDescription>
+            {t('transactions.addToExistingRuleDescription')}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label>{t('transactions.existingRule')}</Label>
+            <Popover open={openCombobox} onOpenChange={setOpenCombobox}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  disabled={loadingRules || loading || rules.length === 0}
+                  className="flex w-full items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-sm text-left shadow-xs transition-[color,box-shadow] outline-hidden focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 dark:hover:bg-input/50 h-9 cursor-pointer"
+                >
+                  <span className="flex-1 truncate text-left">
+                    {loadingRules ? (
+                      t('common.loading')
+                    ) : selectedRule ? (
+                      selectedRule.name
+                    ) : (
+                      t('transactions.noExistingRules')
+                    )}
+                  </span>
+                  <ChevronDown className="size-4 shrink-0 opacity-50" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="w-[var(--radix-popover-trigger-width)] p-0 overflow-hidden"
+              >
+                <Command
+                  filter={(itemValue, search) => {
+                    return normalizeText(itemValue).includes(normalizeText(search)) ? 1 : 0
+                  }}
+                >
+                  <CommandInput placeholder={t('transactions.searchRule', 'Search rule...')} />
+                  <CommandList className="max-h-[300px] overflow-y-auto">
+                    <CommandEmpty>{t('transactions.noRulesFound', 'No rules found.')}</CommandEmpty>
+                    {groupedRules.map((group) => (
+                      <CommandGroup key={group.categoryId}>
+                        <div className="px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
+                          {group.categoryName}
+                        </div>
+                        {group.rules.map((rule) => (
+                          <CommandItem
+                            key={rule.id}
+                            value={`${group.categoryName} ${rule.name}`}
+                            onSelect={() => {
+                              setRuleId(rule.id)
+                              setOpenCombobox(false)
+                            }}
+                            className="flex items-center justify-between gap-2 cursor-pointer"
+                          >
+                            <span className="flex-1 truncate">{rule.name}</span>
+                            {effectiveRuleId === rule.id && <Check className="size-4 shrink-0" />}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    ))}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {!loadingRules && rules.length === 0 && (
+              <p className="text-xs text-muted-foreground">{t('transactions.noExistingRules')}</p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-[140px_1fr] gap-3">
+            <div className="space-y-2">
+              <Label>{t('transactions.matchOperator')}</Label>
+              <Select
+                value={matchOp}
+                onValueChange={(value) => setMatchOp(value as 'contains' | 'starts_with')}
+                disabled={loading}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="contains">{t('rules.opContains')}</SelectItem>
+                  <SelectItem value="starts_with">{t('rules.opStartsWith')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2 min-w-0">
+              <Label>{t('transactions.matchText')}</Label>
+              <Input
+                value={matchText}
+                onChange={(event) => setMatchText(event.target.value)}
+                disabled={loading}
+                autoFocus
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={loading}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" disabled={!selectedRule || !matchText.trim() || loading}>
+              {loading ? t('common.loading') : t('transactions.assignRule')}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 

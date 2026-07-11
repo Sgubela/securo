@@ -19,6 +19,7 @@ export interface Provider {
   kind?: 'banking' | 'brokerage' | string
   capabilities?: string[]
   requires_institution_select?: boolean
+  supports_asset_sync?: boolean
 }
 
 interface ConnectorSelectDialogProps {

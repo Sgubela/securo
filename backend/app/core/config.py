@@ -1,7 +1,15 @@
 from functools import lru_cache
+from os import getenv
+from pathlib import Path
 from urllib.parse import urlparse
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Use the same environment variable that systemd uses: https://systemd.io/CREDENTIALS/
+# If not defined, defaults to docker secrets defaults (https://docs.docker.com/compose/how-tos/use-secrets/)
+CREDENTIALS_DIRECTORY: list[Path] = [
+    Path(p) for p in getenv("CREDENTIALS_DIRECTORY", "/run/secrets").split(":") if p
+]
 
 
 class Settings(BaseSettings):
@@ -62,7 +70,7 @@ class Settings(BaseSettings):
 
     # FX Rates
     openexchangerates_app_id: str = ""
-    supported_currencies: str = "USD,EUR,GBP,BRL,CAD,AUD,CHF,ARS,JPY,MXN,INR,SEK,DKK,NOK,PLN,CZK,HUF,RON,CRC,IDR,COP,CLP,DOP"  # comma-separated list
+    supported_currencies: str = "USD,EUR,GBP,BRL,CAD,AUD,CHF,ARS,JPY,MXN,INR,SEK,DKK,NOK,PLN,CZK,HUF,RON,CRC,IDR,COP,CLP,DOP,RUB,GTQ,PHP"  # comma-separated list
     fx_sync_mode: str = "on_demand"  # "on_demand" or "scheduled"
 
     # Storage
@@ -85,7 +93,9 @@ class Settings(BaseSettings):
     # OIDC login (works with Authentik, Pocket ID, and other standard OIDC providers)
     oidc_enabled: bool = False
     oidc_provider_name: str = "OIDC"
-    oidc_discovery_url: str = ""  # e.g. https://auth.example.com/application/o/securo/.well-known/openid-configuration
+    oidc_discovery_url: str = (
+        ""  # e.g. https://auth.example.com/application/o/securo/.well-known/openid-configuration
+    )
     oidc_client_id: str = ""
     oidc_client_secret: str = ""
     oidc_redirect_uri: str = ""  # defaults to {FRONTEND_URL}/api/auth/oidc/callback
@@ -107,7 +117,15 @@ class Settings(BaseSettings):
     # is what Google's favicon service caps at before upscaling.
     logo_size: int = 128
 
-    model_config = SettingsConfigDict(env_file=".env")
+    # Brazilian Treasury bond prices (official Tesouro Transparente CSV).
+    # On by default since most users are Brazilian; the official CSV is only
+    # fetched when someone actually searches a bond, and the UI pre-warm is
+    # gated to Brazilian users, so non-Brazilian installs pay ~zero cost.
+    # Set TESOURO_DIRETO_ENABLED=false to fully disable (e.g. to avoid the
+    # external dependency on the Brazilian government endpoint).
+    tesouro_direto_enabled: bool = True
+
+    model_config = SettingsConfigDict(env_file=".env", secrets_dir=CREDENTIALS_DIRECTORY)
 
 
 @lru_cache

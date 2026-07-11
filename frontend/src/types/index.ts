@@ -123,6 +123,7 @@ export interface ConnectionSettings {
     history_import_enabled?: boolean
     history_start?: string | null
   }
+  sync_assets?: boolean
 }
 
 export interface Account {
@@ -221,6 +222,8 @@ export interface Transaction {
   // available, cycle math otherwise). Setting it forces the tx into the
   // bill whose due_date matches.
   effective_bill_date: string | null
+  // The recurring bill this transaction fulfills, if any (issue #116).
+  recurring_transaction_id?: string | null
   splits: TransactionSplit[]
   // Shared-transaction view fields. Set per-request when the viewer
   // is a linked split member but not the owner. Render `viewer_share`
@@ -432,6 +435,7 @@ export interface RecurringTransaction {
   start_date: string
   end_date: string | null
   is_active: boolean
+  auto_generate: boolean
   next_occurrence: string
   amount_primary: number | null
   fx_rate_used: number | null
@@ -627,9 +631,10 @@ export interface Goal {
   target_amount_primary: number | null
   current_amount_primary: number | null
   target_date: string | null
-  tracking_type: 'manual' | 'account' | 'asset' | 'net_worth'
+  tracking_type: 'manual' | 'account' | 'asset' | 'asset_group' | 'net_worth'
   account_id: string | null
   asset_id: string | null
+  asset_group_id: string | null
   status: 'active' | 'completed' | 'paused' | 'archived'
   icon: string | null
   color: string | null
@@ -642,6 +647,7 @@ export interface Goal {
   on_track: 'ahead' | 'on_track' | 'behind' | 'overdue' | 'achieved' | null
   account_name: string | null
   asset_name: string | null
+  asset_group_name: string | null
 }
 
 export interface GoalSummary {

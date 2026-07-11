@@ -20,6 +20,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   Table,
   TableBody,
   TableCell,
@@ -38,6 +45,7 @@ import {
 import type { Transaction, Rule } from '@/types'
 import { RuleDialog, type RuleDialogInitialData } from '@/components/rule-dialog'
 import { PageHeader } from '@/components/page-header'
+import { calculateRangeSelection } from '@/lib/selection-utils'
 import { CategoryIcon } from '@/components/category-icon'
 import { CategorySelect } from '@/components/category-select'
 import { TransactionDialog, extractApiError, type SaveAction } from '@/components/transaction-dialog'
@@ -84,6 +92,14 @@ export default function TransactionsPage() {
   const userCurrency = user?.preferences?.currency_display ?? 'USD'
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem('securo.transactions.pageSize')
+      return stored ? Number(stored) : 20
+    } catch {
+      return 20
+    }
+  })
   const [filterAccountIds, setFilterAccountIds] = useState<string[]>([])
   const [filterCategoryIds, setFilterCategoryIds] = useState<string[]>(() => {
     const initial = searchParams.get('category_id')
@@ -164,6 +180,7 @@ export default function TransactionsPage() {
   const [transferDialogOpen, setTransferDialogOpen] = useState(false)
   const [linkTransferDialogOpen, setLinkTransferDialogOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null)
   const grid = useTransactionsGridState()
   const [bulkCategory, setBulkCategory] = useState<string>('')
   const [bulkAddToGroupOpen, setBulkAddToGroupOpen] = useState(false)
@@ -271,6 +288,7 @@ export default function TransactionsPage() {
   // Clear selection on page/filter change
   useEffect(() => {
     setSelectedIds(new Set())
+    setLastSelectedId(null)
     setBulkCategory('')
   }, [page, filterAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterType, filterFrom, filterTo, filterMinAmount, filterMaxAmount, searchQuery])
 
@@ -313,12 +331,12 @@ export default function TransactionsPage() {
     && activeAccountIds !== null && activeAccountIds.length === 0
 
   const { data, isLoading } = useQuery({
-    queryKey: ['transactions', page, effectiveAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterGroupId, filterType, filterFrom, filterTo, filterMinAmount, filterMaxAmount, searchQuery, tagFilters, grid.sortBy, grid.sortDir],
+    queryKey: ['transactions', page, limit, effectiveAccountIds, filterCategoryIds, filterUncategorized, filterPayee, filterGroupId, filterType, filterFrom, filterTo, filterMinAmount, filterMaxAmount, searchQuery, tagFilters, grid.sortBy, grid.sortDir],
     enabled: !noAccounts,
     queryFn: () =>
       transactions.list({
         page,
-        limit: 20,
+        limit,
         account_ids: effectiveAccountIds.length > 0 ? effectiveAccountIds : undefined,
         category_ids: filterCategoryIds.length > 0 ? filterCategoryIds : undefined,
         payee_id: filterPayee || undefined,
@@ -355,6 +373,7 @@ export default function TransactionsPage() {
     sort_by: grid.sortBy,
     sort_dir: grid.sortDir,
     page,
+    limit,
   }
   const ctxKey = JSON.stringify(ctxFilters) + ':' + (data?.total ?? '')
   useRegisterPageChatContext(
@@ -362,7 +381,7 @@ export default function TransactionsPage() {
       path: '/transactions',
       label: 'Transactions',
       summary: data?.total != null
-        ? `${data.total} transaction(s) match the active filters (showing page ${page}, 20 per page).`
+        ? `${data.total} transaction(s) match the active filters (showing page ${page}, ${limit} per page).`
         : 'Transactions list with active filters.',
       filters: ctxFilters,
     },
@@ -626,13 +645,11 @@ export default function TransactionsPage() {
     setCreateRuleOpen(true)
   }
 
-  const toggleSelect = (id: string) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+  const toggleSelect = (id: string, isShiftKey: boolean = false) => {
+    setSelectedIds(prev =>
+      calculateRangeSelection(prev, lastSelectedId, id, filteredItems, isShiftKey, tx => !tx.is_shared)
+    )
+    setLastSelectedId(id)
   }
 
   // Tag filtering is now applied server-side, so the visible list and the
@@ -698,7 +715,7 @@ export default function TransactionsPage() {
       ? t('transactions.linkTransferInvalidPair')
       : undefined
 
-  const totalPages = data ? Math.ceil(data.total / 20) : 0
+  const totalPages = data ? Math.ceil(data.total / limit) : 0
 
   const isTransferCategoryPromptOpen = !!pendingTransferCategoryUpdate
 
@@ -932,8 +949,12 @@ export default function TransactionsPage() {
               </span>
                             )
             }
-            {recurringList?.some(r => r.description === tx.description && r.type === tx.type) && (
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full">
+            {(tx.recurring_transaction_id != null ||
+              recurringList?.some(r => r.description === tx.description && r.type === tx.type)) && (
+              <span
+                className="text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/5 border border-primary/10 px-1.5 py-0.5 rounded-full"
+                title={tx.recurring_transaction_id != null ? t('transactions.recurringLinkedTooltip') : undefined}
+              >
                 {t('transactions.recurringBadge')}
               </span>
             )}
@@ -1342,8 +1363,11 @@ export default function TransactionsPage() {
                       <input
                         type="checkbox"
                         checked={selectedIds.has(tx.id)}
-                        onChange={() => toggleSelect(tx.id)}
-                        onClick={(e) => e.stopPropagation()}
+                        onChange={() => {}}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleSelect(tx.id, e.shiftKey)
+                        }}
                         className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
                       />
                     )}
@@ -1406,27 +1430,61 @@ export default function TransactionsPage() {
       </div>
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div className={`flex items-center justify-center gap-2 ${selectedIds.size > 0 ? 'pb-16' : ''}`}>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page <= 1}
-            onClick={() => setPage(page - 1)}
-          >
-            {t('transactions.previous')}
-          </Button>
-          <span className="text-sm text-muted-foreground">
-            {page} / {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page >= totalPages}
-            onClick={() => setPage(page + 1)}
-          >
-            {t('transactions.next')}
-          </Button>
+      {data && data.total > 10 && (
+        <div className={`flex flex-col sm:flex-row items-center justify-between gap-4 py-4 ${selectedIds.size > 0 ? 'pb-20' : ''}`}>
+          <div className="hidden sm:block w-32" />
+          {totalPages > 1 ? (
+            <div className="flex items-center justify-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page <= 1}
+                onClick={() => setPage(page - 1)}
+              >
+                {t('transactions.previous')}
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                {page} / {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage(page + 1)}
+              >
+                {t('transactions.next')}
+              </Button>
+            </div>
+          ) : (
+            <div className="hidden sm:block" />
+          )}
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">{t('common.rowsPerPage', 'Rows per page')}</span>
+            <Select
+              value={String(limit)}
+              onValueChange={(val) => {
+                const nextLimit = Number(val)
+                setLimit(nextLimit)
+                setPage(1)
+                try {
+                  localStorage.setItem('securo.transactions.pageSize', String(nextLimit))
+                } catch {
+                  // ignored
+                }
+              }}
+            >
+              <SelectTrigger className="w-[70px] h-8 text-xs">
+                <SelectValue placeholder={limit} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10</SelectItem>
+                <SelectItem value="20">20</SelectItem>
+                <SelectItem value="50">50</SelectItem>
+                <SelectItem value="100">100</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       )}
 

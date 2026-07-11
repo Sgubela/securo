@@ -288,9 +288,24 @@
     "category": "Category",
     "account": "Account",
     "noCategory": "No category",
+    "searchCategory": "Search category...",
+    "noCategoryFound": "No category found.",
+    "searchRule": "Search rule...",
+    "noRulesFound": "No rules found.",
     "addManual": "Add Transaction",
     "duplicate": "Duplicate",
     "createRule": "Create Rule",
+    "ruleActions": "Rule actions",
+    "addToExistingRule": "Add to existing rule",
+    "addToExistingRuleTitle": "Add transaction to rule",
+    "addToExistingRuleDescription": "Choose an active category rule and add this transaction description as another future match.",
+    "existingRule": "Existing rule",
+    "matchOperator": "Match type",
+    "matchText": "Description match",
+    "assignRule": "Add to rule",
+    "noExistingRules": "No active category rules available",
+    "addedToExistingRule": "Rule updated. Future matches will use this category.",
+    "duplicateRuleCondition": "That rule already includes this match.",
     "saveAndNew": "Save & New",
     "saveAndDuplicate": "Save & Duplicate",
     "moreSaveOptions": "More save options",
@@ -300,6 +315,10 @@
     "confirmDelete": "Are you sure you want to delete this transaction?",
     "makeRecurring": "Make recurring",
     "recurringBadge": "Recurring",
+    "recurringLinkedTooltip": "Linked to a recurring bill",
+    "recurringLinkedInfo": "This transaction is linked to a recurring bill.",
+    "recurringUnlinkAction": "Unlink",
+    "recurringUnlinkSuccess": "Transaction unlinked from the recurring bill",
     "transfer": "Transfer",
     "pending": "Pending",
     "recurringInfo": "Recurring transaction ({{frequency}}). Next: {{next}}",
@@ -601,7 +620,10 @@
         "importHistory": "Import history on first sync",
         "importHistoryHelp": "Imports deposits, withdrawals, fees, dividends, interest exports and order fills when available.",
         "historyStart": "History start date (optional)"
-      }
+      },
+      "reconnectTitle": "Reconnect with a fresh token",
+      "reconnectDescription": "Paste a new setup token to refresh this connection in place. Existing accounts, transactions, categories, and rules are preserved.",
+      "reconnect": "Reconnect"
     },
     "providers": {
       "pluggy": {
@@ -624,7 +646,8 @@
     "connectionKinds": {
       "banking": "Banking",
       "brokerage": "Brokerage"
-    }
+    },
+    "reconnected": "Bank reconnected successfully"
   },
   "connections": {
     "settings": "Connection settings",
@@ -637,7 +660,12 @@
     "payeePaymentData": "Payer/receiver name",
     "payeeDescription": "Transaction description",
     "payeeNone": "Don't set payee",
-    "importPending": "Import pending transactions"
+    "importPending": "Import pending transactions",
+    "syncAssets": "Import investment assets",
+    "syncAssetsHint": "When disabled, this connection syncs accounts and transactions but leaves provider investment holdings untouched.",
+    "initialSyncSettings": "Sync options",
+    "initialSyncSettingsDesc": "Choose what Securo should import before opening the connector.",
+    "continueToConnector": "Continue to connector"
   },
   "settings": {
     "rules": "Rules",
@@ -717,7 +745,11 @@
     "viewAll": "View all goals",
     "dashboardTitle": "Goals Progress",
     "noTargetDate": "No deadline",
-    "dashboardEmpty": "No goals yet. Set a target and start tracking your progress!"
+    "dashboardEmpty": "No goals yet. Set a target and start tracking your progress!",
+    "trackingWallet": "Wallet",
+    "wallet": "Wallet",
+    "selectWallet": "Select wallet",
+    "walletHint": "Track this goal with the combined value of all assets in the selected wallet."
   },
   "recurring": {
     "title": "Recurring Transactions",
@@ -750,6 +782,8 @@
     "deleted": "Recurring transaction deleted",
     "generated": "{{count}} transactions generated",
     "generatePending": "Generate Pending",
+    "autoGenerate": "Generate transactions automatically",
+    "autoGenerateHelp": "Create a transaction each time this bill is due. Turn off to wait for the real charge (e.g. from bank sync) and only show it as upcoming until then.",
     "fxEstimate": "Estimate based on latest exchange rate ({{rate}}). Final amount may change."
   },
   "rules": {
@@ -769,6 +803,7 @@
     "add": "Add",
     "created": "Rule created",
     "createdAndApplied": "Rule created and applied to {{count}} transactions",
+    "updatedAndApplied": "Rule updated and applied to {{count}} transactions",
     "updated": "Rule updated",
     "deleted": "Rule deleted",
     "applied": "Rules applied to {{count}} transactions",
@@ -1168,7 +1203,10 @@
     "merged": "Payees merged ({{count}} transactions reassigned)",
     "typeMerchant": "Merchant",
     "typePerson": "Person",
-    "typeCompany": "Company"
+    "typeCompany": "Company",
+    "allTypes": "All Types",
+    "filterByType": "Filter by Type",
+    "favoritesOnly": "Favorites Only"
   },
   "common": {
     "save": "Save",
@@ -1189,7 +1227,8 @@
     "showLess": "Show less",
     "showMore": "+{{count}} more",
     "previous": "Previous",
-    "next": "Next"
+    "next": "Next",
+    "rowsPerPage": "Rows per page"
   },
   "splitGroups": {
     "title": "Groups",

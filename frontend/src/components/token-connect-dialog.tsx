@@ -21,13 +21,21 @@ interface TokenConnectDialogProps {
   open: boolean
   onClose: () => void
   provider: string
+  supportsAssetSync?: boolean
+  reconnectConnectionId?: string
 }
 
 const PROVIDER_BRIDGE_URLS: Record<string, string> = {
   simplefin: 'https://bridge.simplefin.org/simplefin/create',
 }
 
-export function TokenConnectDialog({ open, onClose, provider }: TokenConnectDialogProps) {
+export function TokenConnectDialog({
+  open,
+  onClose,
+  provider,
+  supportsAssetSync = false,
+  reconnectConnectionId,
+}: TokenConnectDialogProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [token, setToken] = useState('')
@@ -37,6 +45,7 @@ export function TokenConnectDialog({ open, onClose, provider }: TokenConnectDial
   const [importHistory, setImportHistory] = useState(true)
   const [historyStart, setHistoryStart] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [syncAssets, setSyncAssets] = useState(true)
 
   useEffect(() => {
     if (!open) {
@@ -47,12 +56,14 @@ export function TokenConnectDialog({ open, onClose, provider }: TokenConnectDial
       setImportHistory(true)
       setHistoryStart('')
       setSubmitting(false)
+      setSyncAssets(true)
     }
   }, [open])
 
   const bridgeUrl = PROVIDER_BRIDGE_URLS[provider]
   const i18nKey = `accounts.tokenConnect.${provider}`
   const isTrading212 = provider === 'trading212'
+  const isReconnect = Boolean(reconnectConnectionId)
   const canSubmit = isTrading212 ? apiKey.trim() && apiSecret.trim() : token.trim()
 
   const handleSubmit = async () => {
@@ -64,8 +75,11 @@ export function TokenConnectDialog({ open, onClose, provider }: TokenConnectDial
           ? `${environment}:${apiKey.trim()}:${apiSecret.trim()}`
           : token.trim(),
         provider,
+        undefined,
+        supportsAssetSync && !isReconnect ? { sync_assets: syncAssets } : undefined,
+        reconnectConnectionId,
       )
-      if (isTrading212) {
+      if (isTrading212 && !isReconnect) {
         await connections.updateSettings(connection.id, {
           trading212_history_import_enabled: importHistory,
           trading212_history_start: historyStart.trim() || null,
@@ -73,7 +87,7 @@ export function TokenConnectDialog({ open, onClose, provider }: TokenConnectDial
       }
       invalidateFinancialQueries(queryClient)
       queryClient.invalidateQueries({ queryKey: ['connections'] })
-      toast.success(t('accounts.connected'))
+      toast.success(t(isReconnect ? 'accounts.reconnected' : 'accounts.connected'))
       onClose()
     } catch (err) {
       const detail =
@@ -92,9 +106,15 @@ export function TokenConnectDialog({ open, onClose, provider }: TokenConnectDial
     <Dialog open={open} onOpenChange={(v) => !v && !submitting && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t(`${i18nKey}.title`, t('accounts.tokenConnect.defaultTitle'))}</DialogTitle>
+          <DialogTitle>
+            {isReconnect
+              ? t(`${i18nKey}.reconnectTitle`, t('accounts.tokenConnect.reconnectTitle'))
+              : t(`${i18nKey}.title`, t('accounts.tokenConnect.defaultTitle'))}
+          </DialogTitle>
           <p className="text-sm text-muted-foreground">
-            {t(`${i18nKey}.description`, t('accounts.tokenConnect.defaultDescription'))}
+            {isReconnect
+              ? t(`${i18nKey}.reconnectDescription`, t('accounts.tokenConnect.reconnectDescription'))
+              : t(`${i18nKey}.description`, t('accounts.tokenConnect.defaultDescription'))}
           </p>
         </DialogHeader>
 
@@ -178,6 +198,25 @@ export function TokenConnectDialog({ open, onClose, provider }: TokenConnectDial
             </div>
           </div>
         ) : (
+          <>
+            {supportsAssetSync && !isReconnect && (
+              <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-3">
+                <div className="space-y-1">
+                  <label htmlFor="token-sync-assets" className="text-sm font-medium text-foreground">
+                    {t('connections.syncAssets')}
+                  </label>
+                  <p className="text-xs text-muted-foreground">{t('connections.syncAssetsHint')}</p>
+                </div>
+                <input
+                  id="token-sync-assets"
+                  type="checkbox"
+                  checked={syncAssets}
+                  onChange={(e) => setSyncAssets(e.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary"
+                  disabled={submitting}
+                />
+              </div>
+            )}
           <div className="space-y-1.5">
             <label className="text-sm font-medium" htmlFor="securo-token-input">
               {t('accounts.tokenConnect.tokenLabel')}
@@ -196,6 +235,7 @@ export function TokenConnectDialog({ open, onClose, provider }: TokenConnectDial
               {t('accounts.tokenConnect.tokenHelp')}
             </p>
           </div>
+          </>
         )}
 
         <DialogFooter>
@@ -205,7 +245,7 @@ export function TokenConnectDialog({ open, onClose, provider }: TokenConnectDial
           <Button onClick={handleSubmit} disabled={!canSubmit || submitting}>
             {submitting
               ? t('accounts.tokenConnect.connecting')
-              : t('accounts.tokenConnect.connect')}
+              : t(isReconnect ? 'accounts.tokenConnect.reconnect' : 'accounts.tokenConnect.connect')}
           </Button>
         </DialogFooter>
       </DialogContent>

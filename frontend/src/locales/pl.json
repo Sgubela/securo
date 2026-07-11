@@ -294,9 +294,24 @@
     "category": "Kategoria",
     "account": "Konto",
     "noCategory": "Brak kategorii",
+    "searchCategory": "Szukaj kategorii...",
+    "noCategoryFound": "Nie znaleziono żadnej kategorii.",
+    "searchRule": "Szukaj reguły...",
+    "noRulesFound": "Nie znaleziono reguł.",
     "addManual": "Dodaj transakcję",
     "duplicate": "Duplikuj",
     "createRule": "Utwórz regułę",
+    "ruleActions": "Akcje reguły",
+    "addToExistingRule": "Dodaj do istniejącej reguły",
+    "addToExistingRuleTitle": "Dodaj transakcję do reguły",
+    "addToExistingRuleDescription": "Wybierz aktywną regułę kategorii i dodaj opis tej transakcji jako kolejne przyszłe dopasowanie.",
+    "existingRule": "Istniejąca reguła",
+    "matchOperator": "Typ dopasowania",
+    "matchText": "Dopasowanie opisu",
+    "assignRule": "Dodaj do reguły",
+    "noExistingRules": "Brak aktywnych reguł kategorii",
+    "addedToExistingRule": "Reguła zaktualizowana. Przyszłe dopasowania użyją tej kategorii.",
+    "duplicateRuleCondition": "Ta reguła już zawiera to dopasowanie.",
     "saveAndNew": "Zapisz i nowa",
     "saveAndDuplicate": "Zapisz i duplikuj",
     "moreSaveOptions": "Więcej opcji zapisu",
@@ -306,6 +321,10 @@
     "confirmDelete": "Czy na pewno usunąć tę transakcję?",
     "makeRecurring": "Ustaw jako cykliczną",
     "recurringBadge": "Cykliczna",
+    "recurringLinkedTooltip": "Powiązana z cyklicznym rachunkiem",
+    "recurringLinkedInfo": "Ta transakcja jest powiązana z cyklicznym rachunkiem.",
+    "recurringUnlinkAction": "Odłącz",
+    "recurringUnlinkSuccess": "Transakcja odłączona od cyklicznego rachunku",
     "transfer": "Transfer",
     "pending": "Oczekująca",
     "recurringInfo": "Transakcja cykliczna ({{frequency}}). Następna: {{next}}",
@@ -637,7 +656,10 @@
         "importHistory": "Importuj historię przy pierwszej synchronizacji",
         "importHistoryHelp": "Importuje wpłaty, wypłaty, opłaty, dywidendy, eksporty odsetek i wykonania zleceń, gdy są dostępne.",
         "historyStart": "Data początku historii (opcjonalnie)"
-      }
+      },
+      "reconnectTitle": "Połącz ponownie za pomocą nowego tokenu",
+      "reconnectDescription": "Wklej nowy token konfiguracji, aby odświeżyć to połączenie bez jego usuwania. Istniejące konta, transakcje, kategorie i reguły zostaną zachowane.",
+      "reconnect": "Połącz ponownie"
     },
     "providers": {
       "pluggy": {
@@ -660,7 +682,8 @@
     "connectionKinds": {
       "banking": "Bankowe",
       "brokerage": "Maklerskie"
-    }
+    },
+    "reconnected": "Bank połączony ponownie"
   },
   "connections": {
     "settings": "Ustawienia połączenia",
@@ -673,7 +696,12 @@
     "payeePaymentData": "Nazwa płatnika/odbiorcy",
     "payeeDescription": "Opis transakcji",
     "payeeNone": "Nie ustawiaj odbiorcy",
-    "importPending": "Importuj transakcje oczekujące"
+    "importPending": "Importuj transakcje oczekujące",
+    "syncAssets": "Importuj aktywa inwestycyjne",
+    "syncAssetsHint": "Gdy wyłączone, to połączenie synchronizuje konta i transakcje, ale nie zmienia inwestycji dostawcy.",
+    "initialSyncSettings": "Opcje synchronizacji",
+    "initialSyncSettingsDesc": "Wybierz, co Securo ma zaimportować przed otwarciem konektora.",
+    "continueToConnector": "Przejdź do konektora"
   },
   "settings": {
     "rules": "Reguły",
@@ -759,7 +787,11 @@
     "viewAll": "Zobacz wszystkie cele",
     "dashboardTitle": "Postęp celów",
     "noTargetDate": "Brak terminu",
-    "dashboardEmpty": "Brak celów. Ustaw cel i zacznij śledzić swój postęp!"
+    "dashboardEmpty": "Brak celów. Ustaw cel i zacznij śledzić swój postęp!",
+    "trackingWallet": "Portfel",
+    "wallet": "Portfel",
+    "selectWallet": "Wybierz portfel",
+    "walletHint": "Śledź ten cel według łącznej wartości wszystkich aktywów w wybranym portfelu."
   },
   "recurring": {
     "title": "Transakcje cykliczne",
@@ -795,6 +827,8 @@
     "generated_many": "Wygenerowano {{count}} transakcji",
     "generated_other": "Wygenerowano {{count}} transakcji",
     "generatePending": "Generuj oczekujące",
+    "autoGenerate": "Automatycznie generuj transakcje",
+    "autoGenerateHelp": "Tworzy transakcję za każdym razem, gdy ten rachunek jest wymagalny. Wyłącz, aby poczekać na rzeczywiste obciążenie (np. z synchronizacji bankowej) i do tego czasu pokazywać je tylko jako nadchodzące.",
     "fxEstimate": "Szacunek na podstawie najnowszego kursu wymiany ({{rate}}). Ostateczna kwota może się zmienić."
   },
   "rules": {
@@ -820,6 +854,7 @@
     "add": "Dodaj",
     "created": "Utworzono regułę",
     "createdAndApplied": "Utworzono regułę i zastosowano do {{count}} transakcji",
+    "updatedAndApplied": "Zaktualizowano regułę i zastosowano do {{count}} transakcji",
     "updated": "Zaktualizowano regułę",
     "deleted": "Usunięto regułę",
     "applied_one": "Zastosowano reguły do {{count}} transakcji",
@@ -1243,7 +1278,10 @@
     "merged_other": "Scalono odbiorców (przypisano ponownie {{count}} transakcji)",
     "typeMerchant": "Sprzedawca",
     "typePerson": "Osoba",
-    "typeCompany": "Firma"
+    "typeCompany": "Firma",
+    "allTypes": "Wszystkie typy",
+    "filterByType": "Filtruj według typu",
+    "favoritesOnly": "Tylko ulubione"
   },
   "common": {
     "save": "Zapisz",
@@ -1267,7 +1305,8 @@
     "showMore_many": "+{{count}} więcej",
     "showMore_other": "+{{count}} więcej",
     "previous": "Poprzedni",
-    "next": "Następny"
+    "next": "Następny",
+    "rowsPerPage": "Wierszy na stronę"
   },
   "splitGroups": {
     "title": "Grupy",

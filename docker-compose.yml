@@ -38,12 +38,17 @@ x-backend-env: &backend-env
   REDIS_URL: redis://redis:6379/0
   OPENEXCHANGERATES_APP_ID: ${OPENEXCHANGERATES_APP_ID:-}
   FX_SYNC_MODE: ${FX_SYNC_MODE:-on_demand}
+  TESOURO_DIRETO_ENABLED: ${TESOURO_DIRETO_ENABLED:-true}
   STORAGE_LOCAL_PATH: /app/data/attachments
   AGENTS_KNOWLEDGE_STORAGE_PATH: /app/data/agent_knowledge
   # Agents/LLM feature — opt-in. Off by default so existing users pay
   # zero cost. Run `docker compose --profile agents up` after enabling.
   AGENTS_ENABLED: ${AGENTS_ENABLED:-false}
   AGENTS_BUILTIN_MCP_URL: ${AGENTS_BUILTIN_MCP_URL:-http://mcp-server:8765/mcp}
+  # Public URL external agents use to reach the built-in MCP server, shown in
+  # the "External MCP access" panel. Blank → the UI derives it from the browser
+  # (host:8765). Set when the MCP server sits behind an ingress/reverse proxy.
+  AGENTS_EXTERNAL_MCP_URL: ${AGENTS_EXTERNAL_MCP_URL:-}
   AGENTS_EXTRA_MCP_SERVERS: ${AGENTS_EXTRA_MCP_SERVERS:-}
   AGENTS_MCP_JWT_SECRET: ${AGENTS_MCP_JWT_SECRET:-dev-mcp-secret-change-in-production}
   # TTL for tokens minted from /agents/connections → "External MCP access".

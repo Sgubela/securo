@@ -38,6 +38,8 @@ class OAuthCallbackRequest(BaseModel):
     code: str
     state: Optional[str] = None
     provider: Optional[str] = None
+    sync_assets: Optional[bool] = None
+    reconnect_connection_id: Optional[uuid.UUID] = None
 
 
 class ReauthUrlResponse(BaseModel):
@@ -78,3 +80,4 @@ class ConnectionSettingsUpdate(BaseModel):
     import_pending: Optional[bool] = None
     trading212_history_import_enabled: Optional[bool] = None
     trading212_history_start: Optional[str] = None
+    sync_assets: Optional[bool] = None

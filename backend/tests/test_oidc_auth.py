@@ -116,6 +116,22 @@ async def test_oidc_config_disabled_by_default(client: AsyncClient, clean_db):
     response = await client.get("/api/auth/oidc/config")
     assert response.status_code == 200
     assert response.json()["enabled"] is False
+    assert response.json()["password_login_enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_oidc_config_reports_disabled_password_login(
+    client: AsyncClient, clean_db, oidc_settings
+):
+    oidc_settings.password_login_enabled = False
+    try:
+        response = await client.get("/api/auth/oidc/config")
+    finally:
+        oidc_settings.password_login_enabled = True
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+    assert response.json()["password_login_enabled"] is False
 
 
 @pytest.mark.asyncio

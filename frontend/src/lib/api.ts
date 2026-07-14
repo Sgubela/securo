@@ -244,7 +244,11 @@ export const auth = {
     })
     return data
   },
-  oidcConfig: async (): Promise<{ enabled: boolean; provider_name: string }> => {
+  oidcConfig: async (): Promise<{
+    enabled: boolean
+    provider_name: string
+    password_login_enabled: boolean
+  }> => {
     const { data } = await api.get('/auth/oidc/config')
     return data
   },

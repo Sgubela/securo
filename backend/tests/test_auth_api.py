@@ -1,6 +1,8 @@
 import pytest
 from httpx import AsyncClient
 
+from app.core.config import get_settings
+
 
 @pytest.mark.asyncio
 async def test_register(client: AsyncClient, clean_db):
@@ -45,6 +47,24 @@ async def test_login_wrong_password(client: AsyncClient, test_user):
         headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
     assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_login_disabled_by_configuration(client: AsyncClient, test_user):
+    settings = get_settings()
+    previous = settings.password_login_enabled
+    settings.password_login_enabled = False
+    try:
+        response = await client.post(
+            "/api/auth/login",
+            data={"username": "test@example.com", "password": "testpass123"},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+    finally:
+        settings.password_login_enabled = previous
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "PASSWORD_LOGIN_DISABLED"
 
 
 @pytest.mark.asyncio

@@ -26,7 +26,11 @@ export default function LoginPage() {
   const [isPasskeyLoading, setIsPasskeyLoading] = useState(false)
   const [passkeySupported, setPasskeySupported] = useState(false)
   const [registrationEnabled, setRegistrationEnabled] = useState(true)
-  const [oidcConfig, setOidcConfig] = useState<{ enabled: boolean; provider_name: string }>({ enabled: false, provider_name: 'OIDC' })
+  const [oidcConfig, setOidcConfig] = useState<{
+    enabled: boolean
+    provider_name: string
+    password_login_enabled: boolean
+  }>({ enabled: false, provider_name: 'OIDC', password_login_enabled: true })
 
   // 2FA state
   const [requires2fa, setRequires2fa] = useState(false)
@@ -288,33 +292,39 @@ export default function LoginPage() {
                 {error}
               </div>
             )}
-            <div className="space-y-1.5">
-              <Label htmlFor="email" className="text-sm">{t('auth.email')}</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password" className="text-sm">{t('auth.password')}</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
+            {oidcConfig.password_login_enabled && (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="email" className="text-sm">{t('auth.email')}</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="password" className="text-sm">{t('auth.password')}</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+              </>
+            )}
           </CardContent>
           <CardFooter className="flex flex-col gap-4 px-8 pb-8 pt-2">
-            <Button type="submit" className="w-full" disabled={isLoading || isPasskeyLoading}>
-              {isLoading ? t('common.loading') : t('auth.login')}
-            </Button>
-            {(passkeySupported || oidcConfig.enabled) && (
+            {oidcConfig.password_login_enabled && (
+              <Button type="submit" className="w-full" disabled={isLoading || isPasskeyLoading}>
+                {isLoading ? t('common.loading') : t('auth.login')}
+              </Button>
+            )}
+            {oidcConfig.password_login_enabled && (passkeySupported || oidcConfig.enabled) && (
               <div className="flex items-center gap-3 w-full">
                 <div className="h-px flex-1 bg-border" />
                 <span className="text-xs text-muted-foreground">{t('auth.or')}</span>

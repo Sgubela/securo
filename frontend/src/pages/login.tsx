@@ -30,7 +30,7 @@ export default function LoginPage() {
     enabled: boolean
     provider_name: string
     password_login_enabled: boolean
-  }>({ enabled: false, provider_name: 'OIDC', password_login_enabled: true })
+  }>({ enabled: false, provider_name: 'OIDC', password_login_enabled: false })
 
   // 2FA state
   const [requires2fa, setRequires2fa] = useState(false)
@@ -53,7 +53,9 @@ export default function LoginPage() {
     adminApi.registrationStatus().then(({ enabled }) => {
       setRegistrationEnabled(enabled)
     }).catch(() => {})
-    authApi.oidcConfig().then(setOidcConfig).catch(() => {})
+    authApi.oidcConfig().then(setOidcConfig).catch(() => {
+      setError(t('auth.serverError'))
+    })
     adminApi.defaultColors().then(({ light, dark }) => {
       setThemeBasedOnSystem(light, dark, resolvedTheme)
     }).catch(() => {})

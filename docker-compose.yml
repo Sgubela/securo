@@ -11,6 +11,7 @@ x-backend-env: &backend-env
   DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/securo
   SECRET_KEY: ${SECRET_KEY:-dev-secret-change-in-production}
   DEBUG: ${DEBUG:-true}
+  PASSWORD_LOGIN_ENABLED: ${PASSWORD_LOGIN_ENABLED:-true}
   FRONTEND_URL: http://localhost:${FRONTEND_PORT:-3000}
   PLUGGY_CLIENT_ID: ${PLUGGY_CLIENT_ID:-}
   PLUGGY_CLIENT_SECRET: ${PLUGGY_CLIENT_SECRET:-}

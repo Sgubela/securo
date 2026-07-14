@@ -4,6 +4,8 @@ import pyotp
 import pytest
 from httpx import AsyncClient
 
+from app.core.config import get_settings
+
 
 def _make_redis_mock_with_store():
     """Create a Redis mock that actually stores and retrieves key-value pairs."""
@@ -175,6 +177,29 @@ async def test_disable_2fa(client: AsyncClient, test_user_with_2fa):
     )
     assert response.status_code == 200
     assert response.json()["detail"] == "2FA disabled"
+
+
+@pytest.mark.asyncio
+async def test_disable_2fa_rejects_password_when_password_login_disabled(
+    client: AsyncClient, test_user_with_2fa
+):
+    from app.core.auth import get_jwt_strategy
+
+    token = await get_jwt_strategy().write_token(test_user_with_2fa)
+    settings = get_settings()
+    previous = settings.password_login_enabled
+    settings.password_login_enabled = False
+    try:
+        response = await client.post(
+            "/api/auth/2fa/disable",
+            json={"password": "testpass123", "code": "000000"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        settings.password_login_enabled = previous
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "PASSWORD_LOGIN_DISABLED"
 
 
 @pytest.mark.asyncio

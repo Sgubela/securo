@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import current_active_user, get_jwt_strategy
+from app.core.config import get_settings
 from app.core.database import get_async_session
 from app.core.redis import get_redis
 from app.models.user import User
@@ -74,6 +75,9 @@ async def disable_2fa(
     user: User = Depends(current_active_user),
     session: AsyncSession = Depends(get_async_session),
 ):
+    if not get_settings().password_login_enabled:
+        raise HTTPException(status_code=403, detail="PASSWORD_LOGIN_DISABLED")
+
     from fastapi_users.db import SQLAlchemyUserDatabase
     from fastapi.security import OAuth2PasswordRequestForm
 

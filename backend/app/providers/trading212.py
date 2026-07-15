@@ -192,21 +192,81 @@ class Trading212Provider(BankProvider):
 
     async def _get_paginated(self, credentials: dict, path: str, params: Optional[dict] = None) -> list[dict]:
         items: list[dict] = []
+        seen_items: set[str] = set()
         next_path: Optional[str] = path
         next_params = params or {}
+        last_page_items: list[dict] = []
+        use_returned_item_boundary = False
+        requested_pages: set[tuple[str, tuple[tuple[str, str], ...]]] = set()
+
+        def transaction_boundary(page_items: list[dict]) -> Optional[dict[str, str]]:
+            if path != "/api/v0/equity/history/transactions" or not page_items:
+                return None
+            last_item = page_items[-1]
+            reference = str(last_item.get("reference") or "")
+            timestamp = str(last_item.get("dateTime") or "")
+            if not reference or not timestamp:
+                return None
+            return {
+                **{str(key): str(value) for key, value in (params or {}).items()},
+                "cursor": reference,
+                "time": timestamp,
+            }
+
         while next_path:
-            data = await self._get_json(credentials, next_path, next_params)
+            request_key = (
+                next_path,
+                tuple(sorted((str(key), str(value)) for key, value in next_params.items())),
+            )
+            if request_key in requested_pages:
+                raise RuntimeError("Trading 212 pagination repeated the same page boundary")
+            requested_pages.add(request_key)
+
+            try:
+                data = await self._get_json(credentials, next_path, next_params)
+            except httpx.HTTPStatusError as exc:
+                error_type = ""
+                if exc.response.status_code == 404:
+                    try:
+                        error_type = str(exc.response.json().get("type") or "")
+                    except (TypeError, ValueError):
+                        pass
+                boundary = transaction_boundary(last_page_items)
+                if (
+                    boundary is None
+                    or exc.response.status_code != 404
+                    or error_type != "/api-errors/entity-not-found"
+                ):
+                    raise
+                # Trading 212 can return a nextPagePath whose cursor points at a
+                # non-retrievable transaction. Resume from the last transaction
+                # that was actually returned; this boundary is inclusive, so
+                # duplicate rows are removed below.
+                next_path = path
+                next_params = boundary
+                use_returned_item_boundary = True
+                continue
+
             page_items = data.get("items") if isinstance(data, dict) else data
-            if isinstance(page_items, list):
-                items.extend(page_items)
+            if not isinstance(page_items, list):
+                page_items = []
+            last_page_items = page_items
+            for item in page_items:
+                item_key = _stable_row_id(item)
+                if item_key not in seen_items:
+                    seen_items.add(item_key)
+                    items.append(item)
+
             next_page = data.get("nextPagePath") if isinstance(data, dict) else None
             if not next_page:
                 break
-            # Trading 212's nextPagePath may be a full path ("/api/v0/...?query"),
-            # a path-less query string ("?limit=50&cursor=..."), or just raw
-            # query params ("limit=50&cursor=...").  Normalise to always reuse
-            # the original endpoint path with updated query params.
-            if next_page.startswith("/"):
+            if use_returned_item_boundary:
+                boundary = transaction_boundary(page_items)
+                if boundary is None:
+                    raise RuntimeError("Trading 212 transaction page did not include a usable boundary")
+                next_path = path
+                next_params = boundary
+            elif next_page.startswith("/"):
                 # Full path — split into path + query
                 if "?" in next_page:
                     next_path, query = next_page.split("?", 1)

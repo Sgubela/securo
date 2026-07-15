@@ -227,6 +227,144 @@ async def test_paginated_history_uses_next_page_path_only():
 
 
 @pytest.mark.asyncio
+async def test_paginated_history_recovers_from_missing_server_cursor_without_duplicates():
+    requests: list[tuple[str | None, str | None]] = []
+    first = {
+        "reference": "first",
+        "type": "DEPOSIT",
+        "dateTime": "2026-07-15T05:15:20.156Z",
+    }
+    boundary = {
+        "reference": "boundary",
+        "type": "INTEREST_ON_FREE_CASH",
+        "dateTime": "2026-06-02T01:11:13.393Z",
+    }
+    older_boundary = {
+        "reference": "older-boundary",
+        "type": "DEPOSIT",
+        "dateTime": "2026-05-01T10:00:00.000Z",
+    }
+    oldest = {
+        "reference": "oldest",
+        "type": "WITHDRAWAL",
+        "dateTime": "2026-04-01T10:00:00.000Z",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        cursor = request.url.params.get("cursor")
+        requests.append((cursor, request.url.params.get("time")))
+        if cursor == "missing-next-entity":
+            return httpx.Response(
+                404,
+                json={
+                    "type": "/api-errors/entity-not-found",
+                    "title": "Requested entity not found",
+                    "detail": "Transaction with id missing-next-entity not found.",
+                },
+            )
+        if cursor == "boundary":
+            return httpx.Response(
+                200,
+                json={
+                    "items": [boundary, older_boundary],
+                    "nextPagePath": "limit=50&cursor=another-missing-entity&time=ignored",
+                },
+            )
+        if cursor == "older-boundary":
+            return httpx.Response(200, json={"items": [older_boundary, oldest]})
+        return httpx.Response(
+            200,
+            json={
+                "items": [first, boundary],
+                "nextPagePath": (
+                    "limit=50&cursor=missing-next-entity&time=2026-06-01T08%3A24%3A00.642Z"
+                ),
+            },
+        )
+
+    with _patched_client(handler):
+        items = await Trading212Provider().get_history_transactions(
+            {"api_key": "key", "api_secret": "secret", "environment": "demo"},
+            limit=50,
+        )
+
+    assert [item["reference"] for item in items] == [
+        "first",
+        "boundary",
+        "older-boundary",
+        "oldest",
+    ]
+    assert requests == [
+        (None, None),
+        ("missing-next-entity", "2026-06-01T08:24:00.642Z"),
+        ("boundary", "2026-06-02T01:11:13.393Z"),
+        ("older-boundary", "2026-05-01T10:00:00.000Z"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_paginated_history_reraises_nonmatching_404():
+    boundary = {
+        "reference": "boundary",
+        "type": "DEPOSIT",
+        "dateTime": "2026-06-02T01:11:13.393Z",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("cursor"):
+            return httpx.Response(
+                404,
+                json={"type": "/api-errors/invalid-request", "title": "Invalid request"},
+            )
+        return httpx.Response(
+            200,
+            json={
+                "items": [boundary],
+                "nextPagePath": "limit=50&cursor=missing&time=2026-06-01T00%3A00%3A00Z",
+            },
+        )
+
+    with _patched_client(handler):
+        with pytest.raises(httpx.HTTPStatusError):
+            await Trading212Provider().get_history_transactions(
+                {"api_key": "key", "api_secret": "secret", "environment": "demo"}
+            )
+
+
+@pytest.mark.asyncio
+async def test_paginated_history_rejects_repeated_fallback_boundary():
+    boundary = {
+        "reference": "boundary",
+        "type": "DEPOSIT",
+        "dateTime": "2026-06-02T01:11:13.393Z",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        cursor = request.url.params.get("cursor")
+        if cursor == "missing":
+            return httpx.Response(
+                404,
+                json={
+                    "type": "/api-errors/entity-not-found",
+                    "title": "Requested entity not found",
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "items": [boundary],
+                "nextPagePath": "limit=50&cursor=missing&time=2026-06-01T00%3A00%3A00Z",
+            },
+        )
+
+    with _patched_client(handler):
+        with pytest.raises(RuntimeError, match="repeated the same page boundary"):
+            await Trading212Provider().get_history_transactions(
+                {"api_key": "key", "api_secret": "secret", "environment": "demo"}
+            )
+
+
+@pytest.mark.asyncio
 async def test_request_export_is_disabled_for_read_only_safety():
     with pytest.raises(NotImplementedError):
         await Trading212Provider().request_export(
